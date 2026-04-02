@@ -44,7 +44,8 @@ canvas { display: block; cursor: none; }
 .opt-row label { font-size:12px;letter-spacing:2px;color:rgba(255,255,255,0.5);flex:1; }
 .opt-row input { width:90px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);color:#fff;font:12px 'Courier New',monospace;padding:3px 7px;text-align:right;outline:none; }
 .opt-row input:focus { border-color:rgba(0,255,200,0.6);background:rgba(0,255,200,0.05); }
-#gauges { position:fixed; bottom:18px; right:18px; pointer-events:none; opacity:0.9; }
+#gauges  { position:fixed; bottom:18px;  right:18px; pointer-events:none; opacity:0.9; }
+#minimap { position:fixed; bottom:168px; right:18px; pointer-events:none; opacity:0.9; }
 #zone-hud { position:fixed; bottom:18px; right:250px; color:rgba(255,255,255,0.45); font:11px 'Courier New',monospace; text-align:right; pointer-events:none; line-height:1.5; }
 #pos-hud { position:fixed; bottom:18px; left:28px; pointer-events:none; color:#fff; font-family:'Courier New',monospace; text-shadow:0 0 12px rgba(0,0,0,0.9); line-height:1; display:flex; align-items:baseline; gap:2px; }
 #pos-num { font-size:72px; font-weight:bold; }
@@ -155,7 +156,8 @@ canvas { display: block; cursor: none; }
 "></div>
 <div id="hud">0 MPH</div>
 <div id="ammo-hud"></div>
-<canvas id="gauges" width="220" height="130"></canvas>
+<canvas id="gauges"  width="220" height="130"></canvas>
+<canvas id="minimap" width="160" height="160"></canvas>
 <div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
 <div id="lights"><div id="light-bar">
   <div class="bulb" id="bl-red"></div>
@@ -305,6 +307,7 @@ import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
 import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
 import { LEVEL1_MISSION } from './assets/missions/level1.js';
+import { Minimap }        from './assets/minimap.js';
 
 // ── Live-tunable parameters (editable via Options screen) ──────────────────
 const PARAMS = window.PARAMS = {
@@ -1450,7 +1453,10 @@ function addDecorations(si) {
   if (mSpawn) {
     if (segCtx.missionOverride._applied) {
       const mBldg = decorSeg[si].find(o => o.userData.missionId === mSpawn.stageId);
-      if (mBldg) MissionSystem.registerSpawned(mSpawn.stageId, si, { x: mBldg.position.x, z: mBldg.position.z });
+      if (mBldg) {
+        MissionSystem.registerSpawned(mSpawn.stageId, si, { x: mBldg.position.x, z: mBldg.position.z });
+        Minimap.addMarker(mSpawn.stageId, mBldg.position.x, mBldg.position.z);
+      }
     } else {
       // No viable building in this segment — try the next one
       MissionSystem.requeueSpawn(si, mSpawn);
@@ -1794,6 +1800,7 @@ const _ZONE_LABEL = {
 };
 const gaugesEl  = document.getElementById('gauges');
 const gaugesCtx = gaugesEl.getContext('2d');
+Minimap.init(document.getElementById('minimap'));
 let _squealSrc = null, _squealGain = null;
 const tipEl    = document.getElementById('tip');
 const goEl     = document.getElementById('go-text');
@@ -2295,6 +2302,7 @@ function enterBuilding(b) {
 
   const mResult = MissionSystem.notify(b.group.userData.missionId);
   if (mResult) {
+    Minimap.removeMarker(b.group.userData.missionId);
     const p = mResult.story?.length ? DialogSystem.show(mResult.story) : Promise.resolve();
     if (mResult.isLevelComplete) {
       p.then(() => setTimeout(() => { if (currentLevel === 1) { teardownL1(); startLevel2(); } }, 1500));
@@ -2663,6 +2671,7 @@ function frame() {
     posDenEl.textContent = '/' + allCars.length;
   }
   if (!walkMode) drawGauges();
+  Minimap.update(path, player.seg, player.x, player.z, player.angle);
 
   if (player.seg + 1 >= path.length) return;
 
@@ -2922,6 +2931,7 @@ function teardownL1() {
   // Reset game state
   raceStarted = false; speedMul = 0; boxTruck = null; killBot = null;
   MissionSystem.reset();
+  Minimap.clear();
   _btState = 'idle'; _btTimer = 12; _btActiveTime = 0;
   _kbState = 'idle'; _kbTimer = 15; _kbActiveTime = 0;
   camYaw = 0; camBumpPos = 0; camBumpVel = 0; lastBumpSeg = -1; _fallTimer = 0;
@@ -3259,6 +3269,7 @@ function frameL2() {
   hudEl.textContent = walkMode ? '' : Math.round(SLEN * 134 * player.speed * effectiveMul) + ' MPH';
   _zoneHudEl.textContent = `L${currentLevel}  ${_ZONE_LABEL[zoneTypes[player?.seg ?? 0]] ?? ''}`;
   if (!walkMode) drawGauges();
+  Minimap.update(path, player.seg, player.x, player.z, player.angle);
   renderer.render(scene, cam);
 }
 </script>
