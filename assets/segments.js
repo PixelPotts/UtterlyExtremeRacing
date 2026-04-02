@@ -210,6 +210,13 @@ export class DirtSegment extends RaceSegment {
   buildMeshes(si, { spawnDirtRocks }) { return spawnDirtRocks(si); }
 }
 
+// ── Ether (dimensional boundary) ─────────────────────────────────────────────
+export class EtherSegment extends RaceSegment {
+  get roadMat() { return 'etherRoad'; }
+  get kerb()    { return KERB_NONE;   }
+  // No buildMeshes — portal planes are spawned by addDecorations at zone edges
+}
+
 // ── Mountains (snowy alpine) ───────────────────────────────────────────────────
 export class MountainsSegment extends RaceSegment {
   get roadMat() { return 'snow';    }
@@ -358,13 +365,15 @@ export const SEGMENT_TYPES = {
   bridge:       new BridgeSegment(),
   intersection: new IntersectionSegment(),
   mountains:    new MountainsSegment(),
+  ether:        new EtherSegment(),
 };
 
 export const ZONE_PROBS = [
-  ['buildings', 0.38],
-  ['trees',     0.56],
-  ['mountains', 0.68],
-  ['tunnel',    0.80],
-  ['bridge',    0.90],
+  ['buildings', 0.36],
+  ['trees',     0.54],
+  ['mountains', 0.65],
+  ['ether',     0.72],  // ~7% chance — rare dimensional rift
+  ['tunnel',    0.82],
+  ['bridge',    0.91],
   ['dirt',      1.00],
 ];

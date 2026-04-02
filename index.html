@@ -299,7 +299,8 @@ import { SEGMENT_TYPES_L2 }                                    from './assets/se
 import { NeonLightPool }                                        from './assets/neonlightpool.js';
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
-import { RockMonster } from './assets/rockmonster.js';
+import { RockMonster }    from './assets/rockmonster.js';
+import { EtherComposer } from './assets/ether.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
@@ -370,6 +371,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
+const etherComposer = new EtherComposer(renderer, innerWidth, innerHeight);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x3E4A52);
@@ -451,8 +453,9 @@ const M = {
   kerbNeonBlue:   new THREE.MeshStandardMaterial({ color: 0x0088ff, emissive: 0x0088ff, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   kerbNeonOrange: new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff6600, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   blackWater:    new THREE.MeshStandardMaterial({ color: 0x040d0a, roughness: 0.03, metalness: 0, emissive: 0x020b08, emissiveIntensity: 0.7, side: THREE.DoubleSide }),
-  snow:          null,  // assigned below after ShaderMaterial creation
+  snow:           null,  // assigned below after ShaderMaterial creation
   mountainTerrain: null,
+  etherRoad:      null,
 };
 
 // ── Snow road + mountain terrain shaders ────────────────────────────────────────
@@ -628,6 +631,57 @@ M.mountainTerrain = new THREE.ShaderMaterial({
   vertexShader:   MTN_VS,
   fragmentShader: MTN_FS,
   side:           THREE.DoubleSide,
+});
+
+// ── Ether road — near-black with flowing cyan/purple data streams ─────────────
+const _etherRoadUniforms = { uTime: { value: 0 } };
+
+const ETHER_ROAD_VS = /* glsl */`
+varying vec3 vWorldPos;
+void main() {
+  vec4 wp   = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const ETHER_ROAD_FS = /* glsl */`
+uniform float uTime;
+varying vec3 vWorldPos;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+void main() {
+  // Base: near-black with violet undertone
+  vec3 col = vec3(0.012, 0.005, 0.024);
+
+  // Three layers of flowing streams along road Z
+  float t1 = fract(vWorldPos.z * 0.07 - uTime * 0.50);
+  float t2 = fract(vWorldPos.z * 0.18 - uTime * 0.88);
+  float t3 = fract(vWorldPos.z * 0.34 - uTime * 1.38);
+  col += vec3(0.0,  0.75, 1.0) * smoothstep(0.0, 0.04, t1) * smoothstep(0.08, 0.04, t1) * 0.70;
+  col += vec3(0.72, 0.0,  1.0) * smoothstep(0.0, 0.02, t2) * smoothstep(0.04, 0.02, t2) * 0.52;
+  col += vec3(0.0,  1.0,  0.5) * smoothstep(0.0, 0.015,t3) * smoothstep(0.03, 0.015,t3) * 0.36;
+
+  // Lateral grid marks
+  float gx = smoothstep(0.47, 0.50, fract(vWorldPos.x * 0.52))
+           * smoothstep(0.53, 0.50, fract(vWorldPos.x * 0.52));
+  col += vec3(0.18, 0.0, 0.35) * gx;
+
+  // Rare sparkle
+  float sp = h21(floor(vWorldPos.xz * 18.0 + floor(uTime * 10.0)));
+  if (sp > 0.995) col += vec3(0.55, 0.35, 1.0);
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+M.etherRoad = new THREE.ShaderMaterial({
+  vertexShader:   ETHER_ROAD_VS,
+  fragmentShader: ETHER_ROAD_FS,
+  uniforms:       _etherRoadUniforms,
 });
 
 // ── Animated black water — procedural DataTexture normal map, scrolled per frame ─
@@ -1638,6 +1692,30 @@ function _spawnPedestrians(si) {
   }
 }
 
+// ── Ether portal planes (spawned at zone boundaries) ──────────────────────────
+let _etherPortalSeq = 0;
+function _spawnEtherPortal(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  const id   = _etherPortalSeq++;
+  const mesh = etherComposer.makePortalMesh(pos.x, pos.z, angle, pos.y);
+  scene.add(mesh);
+  decorSeg[si].push(mesh);
+  etherComposer.addPortal(id, pos.x, pos.z);
+  // Inline obstacle-style cleanup on segment drop
+  const obs = {
+    update() {},
+    dispose() {
+      etherComposer.removePortal(id);
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+    },
+  };
+  (obstaclesBySeg[si] ??= []).push(obs);
+  obstacles.push(obs);
+}
+
 // ── Rock monster (mountains zone) ─────────────────────────────────────────────
 let _lastMonsterSeg = -999; // ensure minimum spacing between spawns
 function _spawnRockMonster(si) {
@@ -1819,6 +1897,12 @@ function addDecorations(si) {
   if (seg?.hasPedestrians) _spawnPedestrians(si);
   if (zoneTypes[si] === 'neonRoad'    && si > 10 && si % 8 === 0) _spawnNeonCube(si);
   if (zoneTypes[si] === 'mountains') _spawnRockMonster(si);
+  if (zoneTypes[si] === 'ether') {
+    // Portal plane at zone entry (first ether seg after non-ether)
+    if (!zoneTypes[si - 1] || zoneTypes[si - 1] !== 'ether') _spawnEtherPortal(si);
+    // Portal plane at zone exit (last ether seg before non-ether)
+    if (!zoneTypes[si + 1] || zoneTypes[si + 1] !== 'ether') _spawnEtherPortal(si);
+  }
 
 }
 
@@ -3214,13 +3298,17 @@ function frame() {
     _snowUniforms.uTrackAnchor.value.set(_trackWX, _trackWZ);
   }
 
-  renderer.render(scene, cam);
+  // ── Ether road animation ──────────────────────────────
+  _etherRoadUniforms.uTime.value += dt;
+
+  etherComposer.render(scene, cam, player.x, player.z, dt);
 }
 
 window.addEventListener('resize', () => {
   cam.aspect = innerWidth/innerHeight;
   cam.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  etherComposer.resize(innerWidth, innerHeight);
 });
 
 // ── Level management ───────────────────────────────────
@@ -3265,9 +3353,12 @@ function teardownL1() {
   if (moonMesh) { scene.remove(moonMesh); moonMesh = null; }
   if (starsMesh) { scene.remove(starsMesh); starsMesh.geometry.dispose(); starsMesh.material.dispose(); starsMesh = null; }
   _waterUniforms.uTime.value = 0;
-  _snowUniforms.uTime.value  = 0;
+  _snowUniforms.uTime.value    = 0;
+  _etherRoadUniforms.uTime.value = 0;
   _resetTrackCanvas(0, 0);
   _lastMonsterSeg = -999;
+  _etherPortalSeq = 0;
+  etherComposer._portals.clear();
   _segTypes = SEGMENT_TYPES;
 
   // Reset game state
