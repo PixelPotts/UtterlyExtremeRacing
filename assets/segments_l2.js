@@ -327,11 +327,116 @@ export class SplitRoadSegment extends RaceSegment {
   }
 }
 
+// ── Hills Segment (Level 2) ───────────────────────────────────────────────────
+// Dramatic low-poly terrain hills extending ~140 m on both sides of the road.
+// Bright light-blue wireframe edges give a neon synthwave aesthetic.
+
+const _HILL_DARK_MAT = new THREE.MeshBasicMaterial({ color: 0x020814, side: THREE.DoubleSide });
+const _HILL_EDGE_MAT = new THREE.MeshBasicMaterial({ color: 0x66ddff, wireframe: true });
+const _HILL_GLOW_MAT = new THREE.MeshBasicMaterial({
+  color: 0x33aaee, wireframe: true,
+  transparent: true, opacity: 0.30,
+  depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
+const _HILL_NX   = 9;    // lateral quad columns (low poly)
+const _HILL_NZ   = 3;    // longitudinal rows per segment
+const _HILL_WIDE = 140;  // metres per side from kerb edge
+
+function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
+  const NX = _HILL_NX, NZ = _HILL_NZ;
+  const TW = _HILL_WIDE, FADE = 10;
+  const PI2 = Math.PI * 2;
+  const roadH0 = p0.y + 0.42;
+  const roadH1 = p1.y + 0.42;
+  const verts   = [];
+
+  for (let j = 0; j <= NZ; j++) {
+    const tf  = j / NZ;
+    const bx  = p0.x + (p1.x - p0.x) * tf;
+    const bz  = p0.z + (p1.z - p0.z) * tf;
+    const bH  = roadH0 + (roadH1 - roadH0) * tf;
+    const pxt = px0 + (px1 - px0) * tf;
+    const pzt = pz0 + (pz1 - pz0) * tf;
+
+    for (let i = 0; i <= NX; i++) {
+      const lf   = i / NX;
+      const lat  = kOuter + lf * TW;
+      const wx   = bx + pxt * side * lat;
+      const wz   = bz + pzt * side * lat;
+      const ft   = Math.min(1, (lat - kOuter) / FADE);
+      const fade = ft * ft * (3 - 2 * ft);
+
+      const dh =
+        14  * Math.sin(wx * PI2 / 140 + 0.33) * Math.cos(wz * PI2 / 120 + 1.80) +
+         7  * Math.sin(wx * PI2 /  65 + 2.60) * Math.cos(wz * PI2 /  70 + 0.45) +
+         2.5 * Math.sin(wx * PI2 /  28 + 4.20) * Math.cos(wz * PI2 /  32 + 2.10);
+
+      verts.push(wx, bH + fade * dh, wz);
+    }
+  }
+
+  const idx = [];
+  for (let j = 0; j < NZ; j++) {
+    for (let i = 0; i < NX; i++) {
+      const a = j * (NX + 1) + i, b = a + 1;
+      const c = (j + 1) * (NX + 1) + i, d = c + 1;
+      if (side > 0) idx.push(a, b, c, b, d, c);
+      else          idx.push(a, c, b, c, d, b);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  const fill = new THREE.Mesh(geo, _HILL_DARK_MAT);
+  fill.receiveShadow = true;
+
+  // Share same geometry — fill's traversal will dispose it; edge+glow skip disposal
+  const edge = new THREE.Mesh(geo, _HILL_EDGE_MAT);
+  edge.userData.sharedGeo = true;
+  const glow = new THREE.Mesh(geo, _HILL_GLOW_MAT);
+  glow.userData.sharedGeo = true;
+
+  scene.add(fill, edge, glow);
+  return [fill, edge, glow];
+}
+
+export class HillsSegment extends RaceSegment {
+  get roadMat() { return 'roadBlack'; }
+  get kerb()    { return KERB_NEON_GREEN; }
+
+  buildMeshes(si, ctx) {
+    const { path, RW, scene, spawnNeonPole } = ctx;
+    if (!path[si + 1]) return [];
+    const { pos: p0, angle: a0 } = path[si];
+    const { pos: p1, angle: a1 } = path[si + 1];
+    const px0 = Math.cos(a0), pz0 = Math.sin(a0);
+    const px1 = Math.cos(a1), pz1 = Math.sin(a1);
+    const kOuter = RW / 2 + 1.1;
+    const arr    = [];
+
+    for (const side of [-1, 1]) {
+      arr.push(..._buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene));
+    }
+
+    // Neon poles — same stagger as NeonRoadSegment
+    const poleOff = kOuter + 1.4;
+    if (si % 5 === 0) arr.push(...spawnNeonPole(p0.x - px0 * poleOff, p0.z - pz0 * poleOff, a0, -1, si));
+    if (si % 5 === 2) arr.push(...spawnNeonPole(p0.x + px0 * poleOff, p0.z + pz0 * poleOff, a0,  1, si));
+
+    return arr;
+  }
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 export const SEGMENT_TYPES_L2 = {
   neonRoad:   new NeonRoadSegment(),
   neonRing:   new NeonRingSegment(),
   splitRoad:  new SplitRoadSegment(),
+  hills:      new HillsSegment(),
   start:      new NeonRoadSegment(),
 };
 

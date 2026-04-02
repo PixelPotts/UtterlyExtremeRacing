@@ -1769,7 +1769,7 @@ const _zoneHudEl = document.getElementById('zone-hud');
 const _ZONE_LABEL = {
   trees: 'Forest', buildings: 'City', tunnel: 'Tunnel', dirt: 'Dirt',
   bridge: 'Bridge', intersection: 'City', start: 'Start',
-  neonRoad: 'Neon Road', neonRing: 'Neon Road', splitRoad: 'Split Road',
+  neonRoad: 'Neon Road', neonRing: 'Neon Road', splitRoad: 'Split Road', hills: 'Hills',
 
 };
 const gaugesEl  = document.getElementById('gauges');
@@ -2923,6 +2923,7 @@ function teardownL1() {
 // teardownL1 already resets to zero before this is called.
 // Split-run scheduling state (reset in startLevel2):
 let _l2SplitActive = false, _l2SplitStart = 0, _l2SplitLen = 0, _l2SplitGapSegs = 0;
+let _l2HillsLeft = 0;
 
 function genPtL2() {
   // ── Normal generation ──────────────────────────────────────────────────────
@@ -2957,7 +2958,17 @@ function genPtL2() {
     }
   } else if (_l2SplitGapSegs > 0) {
     _l2SplitGapSegs--;
-    _zType = (path.length % 25 === 0 && path.length > 8) ? 'neonRing' : 'neonRoad';
+    if (_l2HillsLeft > 0) {
+      _l2HillsLeft--;
+      _zType = 'hills';
+    } else if (path.length % 25 === 0 && path.length > 8) {
+      _zType = 'neonRing';
+    } else if (_l2SplitGapSegs > 10 && Math.random() < 0.12) {
+      _l2HillsLeft = 8 + (Math.random() * 10 | 0);
+      _zType = 'hills';
+    } else {
+      _zType = 'neonRoad';
+    }
   } else if (path.length > 20) {
     _l2SplitStart  = path.length - 1;
     _l2SplitLen    = 41 + (Math.random() * 37 | 0);
@@ -2999,6 +3010,7 @@ function startLevel2() {
   // Start the L2 path well above sea level (y=0) so the gap always shows water below
   pHeightY = 22; pHeightVel = 0; pTargetY = 22;
   _l2SplitActive = false; _l2SplitStart = 0; _l2SplitLen = 0; _l2SplitGapSegs = 0;
+  _l2HillsLeft = 0;
 
   // Generate initial path with hills + curves
   for (let i = 0; i < AHEA + KEEP + 30; i++) genPtL2();
