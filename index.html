@@ -304,7 +304,7 @@ import { NeonLightPool }                                        from './assets/n
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster }    from './assets/rockmonster.js';
-import { EtherCoil }     from './assets/ethercoil.js';
+import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
@@ -2193,7 +2193,8 @@ function _spawnEtherCoil(si) {
     scene, mx, mz, pos.y,
     pos.x, pos.z,
     () => actx,
-    onHit, onNearMiss
+    onHit, onNearMiss,
+    _etherCoilLightPool,
   );
   (obstaclesBySeg[si] ??= []).push(coil);
   obstacles.push(coil);
@@ -2407,6 +2408,10 @@ function dropDecorations(si) {
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
+
+// ── EtherCoil light pool — pre-allocated so coil spawn/dispose never changes
+//    the scene's light count and never triggers a mid-game shader recompile.
+const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
 
 // ── Pickup manager ─────────────────────────────────────
 pickupManager = new PickupManager(scene, path, zoneTypes);
@@ -3044,15 +3049,31 @@ function startGame() {
   initAudio().catch(() => {});
 
   // Pre-compile shaders; keep the loader visible as the progress screen.
-  // Update status text only if it takes longer than 500 ms.
-  // Dummy instances bake mid-game shader variants (BoxTruck receiveShadow,
-  // ether portal plane, ether screen-space composite) before first frame.
+  // Dummy objects bake all mid-game shader variants before first frame:
+  //   • BoxTruck      — MeshLambertMaterial + receiveShadow variant
+  //   • EtherCoil     — TOROID/BOLT/GLOW/IMPACT ShaderMaterials + MeshPhong + MeshStandard
+  //   • etherRoad     — ShaderMaterial, only used on ether road quads
+  //   • etherGround   — ShaderMaterial, only used on ether terrain
+
   const _dummyBt = new BoxTruck(scene, path, 0, SLEN);
   _dummyBt.group.visible = false;
+
+  const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
+  _dummyCoil._group.visible = false;
+
+  const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherRoad);
+  const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherGround);
+  _dummyEtherRoad.position.set(0, -500, 0);
+  _dummyEtherGround.position.set(0, -500, 0);
+  scene.add(_dummyEtherRoad, _dummyEtherGround);
 
   const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
   etherComposer.warmupCompile(renderer, scene, cam).then(() => {
     _dummyBt.dispose();
+    _dummyCoil.dispose();
+    scene.remove(_dummyEtherRoad, _dummyEtherGround);
+    _dummyEtherRoad.geometry.dispose();
+    _dummyEtherGround.geometry.dispose();
     clearTimeout(_showCompile);
     if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
     frame();
@@ -3908,6 +3929,7 @@ function teardownL1() {
   streetLightPool.forEach(l => scene.add(l));
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
   pickupManager?.restorePool(scene);
+  _etherCoilLightPool.restoreTo(scene);
 
   // Reset path state
   path.length = 0; zoneTypes.length = 0;

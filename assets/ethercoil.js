@@ -96,6 +96,42 @@ const _copperMat = new THREE.MeshStandardMaterial({
   emissive: new THREE.Color(0x1a0800), emissiveIntensity: 1.0,
 });
 
+// ── EtherCoilLightPool ────────────────────────────────────────────────────────
+// Pre-allocates PointLight pairs (charge pt + ground impact) so EtherCoil
+// spawn/dispose never changes the scene's active light count and never triggers
+// a shader recompile mid-game.
+export class EtherCoilLightPool {
+  constructor(scene, size = 3) {
+    this._slots = Array.from({ length: size }, () => {
+      const pt     = new THREE.PointLight(0x8800ff, 0, 80);
+      const impact = new THREE.PointLight(0x88aaff, 0, 60);
+      pt.position.set(0, -500, 0);
+      impact.position.set(0, -500, 0);
+      scene.add(pt, impact);
+      return { pt, impact, free: true };
+    });
+  }
+
+  acquire() {
+    const s = this._slots.find(s => s.free);
+    if (!s) { console.warn('[EtherCoilLightPool] pool exhausted'); return null; }
+    s.free = false;
+    return s;
+  }
+
+  release(slot) {
+    if (!slot) return;
+    slot.pt.intensity = 0;     slot.pt.position.set(0, -500, 0);
+    slot.impact.intensity = 0; slot.impact.position.set(0, -500, 0);
+    slot.free = true;
+  }
+
+  // Re-add pool lights to scene after scene.clear() (level reset).
+  restoreTo(scene) {
+    for (const s of this._slots) scene.add(s.pt, s.impact);
+  }
+}
+
 // ── EtherCoil ────────────────────────────────────────────────────────────────
 export class EtherCoil {
   /**
@@ -108,8 +144,9 @@ export class EtherCoil {
    * @param {Function} getActx  () => AudioContext | null
    * @param {Function} onHit        called on direct hit (<8 m)
    * @param {Function} onNearMiss   called on near miss (8–18 m)
+   * @param {EtherCoilLightPool} lightPool  optional — acquires 2 lights from pool
    */
-  constructor(scene, x, z, groundY, roadX, roadZ, getActx, onHit, onNearMiss) {
+  constructor(scene, x, z, groundY, roadX, roadZ, getActx, onHit, onNearMiss, lightPool = null) {
     this._scene    = scene;
     this._x        = x;
     this._z        = z;
@@ -145,6 +182,10 @@ export class EtherCoil {
     this._boltCoreUni    = { uAge: { value: 0 } };
     this._boltGlowUni    = { uAge: { value: 0 } };
     this._impactUni      = { uAge: { value: 1 } };
+
+    // Light pool — acquire a slot so spawn/dispose never changes scene light count
+    this._lightPool = lightPool;
+    this._lightSlot = lightPool?.acquire() ?? null;
 
     this._buildCoil();
     this._buildBoltRig();
@@ -270,17 +311,26 @@ export class EtherCoil {
     ball.position.y = 28.5;
     g.add(ball);
 
-    // ── Charge point light (starts off)
-    const ptLight = new THREE.PointLight(0x8800ff, 0, 80);
-    ptLight.position.y = 28.5;
-    g.add(ptLight);
-    this._ptLight = ptLight;
+    // ── Charge point light — use pool slot to avoid changing scene light count
+    if (this._lightSlot) {
+      this._ptLight = this._lightSlot.pt;
+      this._ptLight.position.set(this._x, this._groundY + 28.5, this._z);
+    } else {
+      const ptLight = new THREE.PointLight(0x8800ff, 0, 80);
+      ptLight.position.y = 28.5;
+      g.add(ptLight);
+      this._ptLight = ptLight;
+    }
 
-    // ── Impact point light (at ground, starts off)
-    const impactLight = new THREE.PointLight(0x88aaff, 0, 60);
-    impactLight.position.set(0, 0.5, 0);
-    this._scene.add(impactLight);   // world space — positioned at strike point
-    this._impactLight = impactLight;
+    // ── Impact point light — pool slot; world-space, repositioned on each strike
+    if (this._lightSlot) {
+      this._impactLight = this._lightSlot.impact;
+    } else {
+      const impactLight = new THREE.PointLight(0x88aaff, 0, 60);
+      impactLight.position.set(this._x, this._groundY + 0.5, this._z);
+      this._scene.add(impactLight);
+      this._impactLight = impactLight;
+    }
   }
 
   // ── Bolt rig (hidden until strike) ─────────────────────────────────────────
@@ -660,7 +710,13 @@ export class EtherCoil {
     this._scene.remove(this._boltCoreMesh);
     this._scene.remove(this._boltGlowMesh);
     this._scene.remove(this._impactMesh);
-    this._scene.remove(this._impactLight);
+    // Release pool slot (parks lights at y=-500, keeps them in scene so light count stays constant)
+    if (this._lightSlot) {
+      this._lightPool.release(this._lightSlot);
+      this._lightSlot = null;
+    } else {
+      this._scene.remove(this._impactLight);
+    }
     this._branches.forEach(b => {
       this._scene.remove(b);
       b.geometry.dispose();
