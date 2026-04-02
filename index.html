@@ -300,6 +300,7 @@ import { NeonLightPool }                                        from './assets/n
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster }    from './assets/rockmonster.js';
+import { EtherCoil }     from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
@@ -2070,7 +2071,8 @@ function _spawnEtherPortal(si) {
 }
 
 // ── Rock monster (mountains zone) ─────────────────────────────────────────────
-let _lastMonsterSeg = -999; // ensure minimum spacing between spawns
+let _lastMonsterSeg   = -999; // ensure minimum spacing between spawns
+let _lastEtherCoilSeg = -999;
 function _spawnRockMonster(si) {
   if (!path[si]) return;
   if (si - _lastMonsterSeg < 20) return; // one monster per ~260 m
@@ -2092,6 +2094,38 @@ function _spawnRockMonster(si) {
   const monster = new RockMonster(scene, mx, mz, pos.y, pos.x, pos.z, onHit);
   (obstaclesBySeg[si] ??= []).push(monster);
   obstacles.push(monster);
+}
+
+// ── Ether coil (ether zone) ────────────────────────────────────────────────────
+function _spawnEtherCoil(si) {
+  if (!path[si]) return;
+  if (si - _lastEtherCoilSeg < 22) return; // minimum gap ~286 m
+  _lastEtherCoilSeg = si;
+
+  const { pos, angle } = path[si];
+  const px   = Math.cos(angle), pz  = Math.sin(angle); // lateral perp to road
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const dist = 55 + Math.random() * 25; // 55–80 m from road centre
+
+  const mx = pos.x + px * side * dist;
+  const mz = pos.z + pz * side * dist;
+
+  const onHit = () => {
+    player.speed  *= 0.45;
+    camBumpVel    += 7.0;
+  };
+  const onNearMiss = () => {
+    camBumpVel += 2.5;
+  };
+
+  const coil = new EtherCoil(
+    scene, mx, mz, pos.y,
+    pos.x, pos.z,
+    () => actx,
+    onHit, onNearMiss
+  );
+  (obstaclesBySeg[si] ??= []).push(coil);
+  obstacles.push(coil);
 }
 
 // ── Neon cube obstacle (Level 2) ─────────────────────────────────────────────
@@ -2255,6 +2289,8 @@ function addDecorations(si) {
     if (!zoneTypes[si - 1] || zoneTypes[si - 1] !== 'ether') _spawnEtherPortal(si);
     // Portal plane at zone exit (last ether seg before non-ether)
     if (!zoneTypes[si + 1] || zoneTypes[si + 1] !== 'ether') _spawnEtherPortal(si);
+    // Tesla coil — throttled internally to ~22-seg gap
+    _spawnEtherCoil(si);
   }
 
 }
@@ -3775,7 +3811,8 @@ function teardownL1() {
   _etherSkyUniforms.uStrength.value  = 0;
   _stopEtherStatic();
   _resetTrackCanvas(0, 0);
-  _lastMonsterSeg = -999;
+  _lastMonsterSeg   = -999;
+  _lastEtherCoilSeg = -999;
   _etherPortalSeq = 0;
   etherComposer._portals.clear();
   _segTypes = SEGMENT_TYPES;
