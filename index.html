@@ -303,6 +303,7 @@ import { Walker } from './assets/walker.js';
 import { Sky } from './assets/sky.js';
 import { DialogSystem }  from './assets/dialog.js';
 import { LEVEL1_INTRO }  from './assets/stories/level1_intro.js';
+import { DOOR_ENTRY }    from './assets/stories/door_entry.js';
 
 // ── Live-tunable parameters (editable via Options screen) ──────────────────
 const PARAMS = window.PARAMS = {
@@ -1603,6 +1604,7 @@ player.group.rotation.y = Math.PI;
 let walkMode = false, walker = null;
 let inBuilding = false, _interiorMeshes = [], _currentBldg = null;
 const _enterableBuildings = [];   // populated by spawnBuilding for def.enterable
+let _doorStoryShown = false;
 
 const aiColors       = [0xCC2211, 0xDDAA00, 0xDDDDDD];
 const aiPersonalities = ['aggressive', 'normal', 'defensive'];
@@ -2318,6 +2320,11 @@ function enterBuilding(b) {
   walker.vy = 0;
 
   _logBuildingEntry(b);
+
+  if (!_doorStoryShown) {
+    _doorStoryShown = true;
+    DialogSystem.show(DOOR_ENTRY);
+  }
 }
 
 function exitBuilding() {
@@ -2391,7 +2398,7 @@ function frame() {
     } else {
       wFloorY = getFloorY(walker.x, walker.z, walker.seg);
     }
-    walker.update(dt, keys, wFloorY);
+    walker.update(dt, DialogSystem.isActive() ? {} : keys, wFloorY);
     // Advance walker.seg along path
     for (let s = walker.seg - 1; s <= walker.seg + 2; s++) {
       if (!path[s] || !path[s + 1]) continue;
@@ -2938,7 +2945,7 @@ function teardownL1() {
   _segTypes = SEGMENT_TYPES;
 
   // Reset game state
-  raceStarted = false; speedMul = 0; boxTruck = null; killBot = null;
+  raceStarted = false; speedMul = 0; boxTruck = null; killBot = null; _doorStoryShown = false;
   _btState = 'idle'; _btTimer = 12; _btActiveTime = 0;
   _kbState = 'idle'; _kbTimer = 15; _kbActiveTime = 0;
   camYaw = 0; camBumpPos = 0; camBumpVel = 0; lastBumpSeg = -1; _fallTimer = 0;
