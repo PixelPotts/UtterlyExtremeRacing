@@ -7,6 +7,8 @@ body { overflow: hidden; }
 canvas { display: block; cursor: none; }
 #hud { position: fixed; top: 18px; right: 28px; color: #fff; font: bold 32px 'Courier New', monospace; text-shadow: 0 0 12px rgba(0,0,0,0.9); pointer-events: none; }
 #ammo-hud { position: fixed; top: 60px; right: 28px; color: #FFE44D; font: bold 20px 'Courier New', monospace; text-shadow: 0 0 10px rgba(255,200,0,0.8); pointer-events: none; display: none; }
+#grenade-hud { position: fixed; top: 86px; right: 28px; color: #88ff44; font: bold 18px 'Courier New', monospace; text-shadow: 0 0 10px rgba(100,255,50,0.8); pointer-events: none; display: none; }
+#nitro-hud { position: fixed; top: 110px; right: 28px; color: #0099ff; font: bold 18px 'Courier New', monospace; text-shadow: 0 0 10px rgba(0,150,255,0.8); pointer-events: none; display: none; }
 #tip { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.38); font: 13px monospace; pointer-events: none; }
 #lights { position: fixed; top: 22px; left: 50%; transform: translateX(-50%); pointer-events: none; z-index: 10; }
 #light-bar { display: flex; align-items: center; gap: 12px; background: #1a1a1a; padding: 10px 20px; border-radius: 6px; border: 3px solid #444; box-shadow: 0 4px 20px rgba(0,0,0,0.8); }
@@ -156,9 +158,11 @@ canvas { display: block; cursor: none; }
 "></div>
 <div id="hud">0 MPH</div>
 <div id="ammo-hud"></div>
+<div id="grenade-hud"></div>
+<div id="nitro-hud"></div>
 <canvas id="gauges"  width="220" height="130"></canvas>
 <canvas id="minimap" width="160" height="160"></canvas>
-<div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
+<div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; G grenade &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
 <div id="lights"><div id="light-bar">
   <div class="bulb" id="bl-red"></div>
   <div class="bulb" id="bl-yellow"></div>
@@ -310,6 +314,8 @@ import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
 import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
 import { LEVEL1_MISSION } from './assets/missions/level1.js';
+import { PickupManager } from './assets/pickups.js';
+import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
 
 // ── Live-tunable parameters (editable via Options screen) ──────────────────
@@ -1373,6 +1379,44 @@ let activeWeapon = null;
 let _dryFirePlayed = false;
 const GUN_SEG = 8; // path[8] ≈ 104 m from start
 
+// ── Pickup / powerup state ──────────────────────────────
+let nitroCharges    = 0;
+let playerGrenades  = 0;
+let _nitroBurnTimer = 0;
+let _grCooldown     = 0;    // grenade throw cooldown
+let gunEmptyTimer   = -1;   // seconds until gun leaves car; -1 = inactive
+const _playerGrenades3D = [];
+
+let pickupFrontier = 0;
+let pickupManager  = null;
+
+function _updatePickupHUD() {
+  const gEl = document.getElementById('grenade-hud');
+  const nEl = document.getElementById('nitro-hud');
+  gEl.style.display = playerGrenades > 0 ? 'block' : 'none';
+  gEl.textContent   = `G \xd7${playerGrenades}`;
+  nEl.style.display = nitroCharges > 0 ? 'block' : 'none';
+  nEl.textContent   = `NITRO \xd7${nitroCharges}`;
+}
+
+function _throwPlayerGrenade() {
+  const G = 12, T = 1.1;
+  const fwdX = Math.sin(player.angle), fwdZ = -Math.cos(player.angle);
+  const carY = player.group.position.y;
+  const sx = player.x + fwdX * 2,  sy = carY + 1.8,  sz = player.z + fwdZ * 2;
+  const dist = 18 + player.speed * SLEN * speedMul * T;
+  const tx = player.x + fwdX * dist,  tz = player.z + fwdZ * dist;
+  const vel = new THREE.Vector3(
+    (tx - sx) / T,
+    (0.5 - sy + 0.5 * G * T * T) / T,
+    (tz - sz) / T,
+  );
+  _playerGrenades3D.push(new Grenade(scene, new THREE.Vector3(sx, sy, sz), vel, {
+    gravity: G,
+    onExplode: pos => playExplosionAt(pos.x, pos.z),
+  }));
+}
+
 const spawnTree = makeSpawnTree(scene);
 const spawnRock = makeSpawnRock(scene);
 
@@ -2337,6 +2381,19 @@ function dropDecorations(si) {
 for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
+// ── Pickup manager ─────────────────────────────────────
+pickupManager = new PickupManager(scene, path, zoneTypes);
+pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
+pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
+pickupManager.on('ammo',    () => {
+  if (activeWeapon) {
+    activeWeapon.ammo = Math.min(activeWeapon.maxAmmo, activeWeapon.ammo + 15);
+    gunEmptyTimer = -1; _dryFirePlayed = false;
+  }
+});
+for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+pickupFrontier = DECO_AHEAD + 6;
+
 // ── Load gun pickup ────────────────────────────────────
 new GLTFLoader().load('assets/geometry/gun.glb', gltf => {
   gunMesh = gltf.scene;
@@ -2563,6 +2620,15 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyF') {
     if (walkMode && !inBuilding) { tryEnterBuilding(); return; }
     keys.f = true;
+  }
+  if (e.code === 'KeyG') {
+    if (!walkMode && playerGrenades > 0 && _grCooldown <= 0) {
+      playerGrenades--;
+      _grCooldown = 0.8;
+      _throwPlayerGrenade();
+      _updatePickupHUD();
+    }
+    return;
   }
   if (e.code === 'Space') { keys.space = true; e.preventDefault(); }
   if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { keys.shift = true; e.preventDefault(); }
@@ -3029,7 +3095,7 @@ function toggleWalkMode() {
     walker?.dispose();
     walker = null;
     document.exitPointerLock();
-    tipEl.textContent = 'A/D steer \u00a0 W accelerate \u00a0 S brake \u00a0 SHIFT nitro \u00a0 SPACE look back \u00a0 F fire \u00a0 mouse freelook';
+    tipEl.textContent = 'A/D steer \u00a0 W accelerate \u00a0 S brake \u00a0 SHIFT nitro \u00a0 G grenade \u00a0 SPACE look back \u00a0 F fire \u00a0 mouse freelook';
     hudEl.style.display     = '';
     gaugesEl.style.display  = '';
     _posHudEl.style.display = '';
@@ -3182,6 +3248,14 @@ function frame() {
   if (keys.shift && player.driftCharge > 0.1) {
     nitroBoost = 1.0 + player.driftCharge * 2.0;
     player.driftCharge = Math.max(0, player.driftCharge - dt * 1.5);
+  } else if (keys.shift && nitroCharges > 0 && _nitroBurnTimer <= 0) {
+    nitroCharges--;
+    _nitroBurnTimer = 3.0;
+    _updatePickupHUD();
+  }
+  if (_nitroBurnTimer > 0) {
+    _nitroBurnTimer = Math.max(0, _nitroBurnTimer - dt);
+    nitroBoost = Math.max(nitroBoost, 1.8);
   }
   const effectiveMul = speedMul * nitroBoost;
   const playerSY = getFloorY(player.x, player.z, player.seg);
@@ -3255,8 +3329,12 @@ function frame() {
       while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
         addDecorations(decoFrontier++);
       }
+      while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
+        pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
+      }
       dropSeg(player.seg - KEEP);
       dropDecorations(player.seg - KEEP);
+      pickupManager.dropSeg(player.seg - KEEP);
     }
 
     // Tree collision — crushable (small) trees flatten; solid big trees stop the car
@@ -3682,18 +3760,7 @@ function frame() {
         if (!_dryFirePlayed) {
           _dryFirePlayed = true;
           playDryFire();
-          // Blink gun out then remove
-          let _blinks = 0;
-          const _blinkIv = setInterval(() => {
-            if (gunMesh) gunMesh.visible = !gunMesh.visible;
-            if (++_blinks >= 10) {
-              clearInterval(_blinkIv);
-              if (gunMesh) { player.group.remove(gunMesh); gunMesh = null; }
-              activeWeapon.dispose();
-              activeWeapon = null;
-              document.getElementById('ammo-hud').style.display = 'none';
-            }
-          }, 60);
+          gunEmptyTimer = 20.0;
         }
       } else {
         const muzzle = new THREE.Vector3();
@@ -3717,6 +3784,27 @@ function frame() {
     if (activeWeapon) ammoEl.textContent = activeWeapon.ammo > 0
       ? `${activeWeapon.ammo} / ${activeWeapon.maxAmmo}`
       : 'EMPTY';
+  }
+
+  // ── Gun empty countdown (20 s then drop) ─────────────
+  if (gunEmptyTimer > 0) {
+    gunEmptyTimer -= dt;
+    if (gunEmptyTimer <= 0) {
+      if (gunMesh) { player.group.remove(gunMesh); gunMesh = null; }
+      activeWeapon?.dispose(); activeWeapon = null;
+      document.getElementById('ammo-hud').style.display = 'none';
+      gunEmptyTimer = -1;
+    }
+  }
+
+  // ── Pickups + player grenades ─────────────────────────
+  pickupManager?.update(dt, player.x, player.z);
+  if (_grCooldown > 0) _grCooldown -= dt;
+  for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
+    if (!_playerGrenades3D[i].update(dt)) {
+      _playerGrenades3D[i].dispose();
+      _playerGrenades3D.splice(i, 1);
+    }
   }
 
   // ── Obstacle updates ─────────────────────────────────
@@ -3827,13 +3915,19 @@ function teardownL1() {
   _kbState = 'idle'; _kbTimer = 15; _kbActiveTime = 0;
   camYaw = 0; camBumpPos = 0; camBumpVel = 0; lastBumpSeg = -1; _fallTimer = 0;
   gunMesh = null; gunGlow = null; gunLight = null; gunPickedUp = false;
-  activeWeapon = null; _dryFirePlayed = false;
+  activeWeapon = null; _dryFirePlayed = false; gunEmptyTimer = -1;
+  for (const g of _playerGrenades3D) g.dispose();
+  _playerGrenades3D.length = 0;
+  nitroCharges = 0; playerGrenades = 0; _nitroBurnTimer = 0; _grCooldown = 0;
+  pickupManager?.reset(); pickupFrontier = 0;
   crushingTrees.length = 0; obstacles.length = 0;
   Object.keys(obstaclesBySeg).forEach(k => delete obstaclesBySeg[k]);
 
   // Reset HUD
   document.getElementById('hud').textContent = '0 MPH';
   document.getElementById('ammo-hud').style.display = 'none';
+  document.getElementById('grenade-hud').style.display = 'none';
+  document.getElementById('nitro-hud').style.display = 'none';
   document.getElementById('go-text').style.display = 'none';
   document.getElementById('lights').style.display = 'none';
   ['bl-red','bl-yellow','bl-g1','bl-g2'].forEach(id => {
@@ -3945,6 +4039,8 @@ function startLevel2() {
   // Initial decoration pass — mirrors L1 startup so water/poles appear immediately
   for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
   decoFrontier = DECO_AHEAD + 6;
+  for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+  pickupFrontier = DECO_AHEAD + 6;
 
   // Player — slightly higher top speed for the open neon road
   player = new PlayerVehicle(scene, path, {
@@ -4058,6 +4154,14 @@ function frameL2() {
   if (keys.shift && player.driftCharge > 0.1) {
     nitroBoost = 1.0 + player.driftCharge * 2.0;
     player.driftCharge = Math.max(0, player.driftCharge - dt * 1.5);
+  } else if (keys.shift && nitroCharges > 0 && _nitroBurnTimer <= 0) {
+    nitroCharges--;
+    _nitroBurnTimer = 3.0;
+    _updatePickupHUD();
+  }
+  if (_nitroBurnTimer > 0) {
+    _nitroBurnTimer = Math.max(0, _nitroBurnTimer - dt);
+    nitroBoost = Math.max(nitroBoost, 1.8);
   }
   const effectiveMul = speedMul * nitroBoost;
 
@@ -4072,8 +4176,12 @@ function frameL2() {
     while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
       addDecorations(decoFrontier++);
     }
+    while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
+      pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
+    }
     dropSeg(player.seg - KEEP);
     dropDecorations(player.seg - KEEP);
+    pickupManager.dropSeg(player.seg - KEEP);
   }
 
   // Animate black water — scroll the normal-map UV offset
@@ -4126,6 +4234,16 @@ function frameL2() {
       killBot = null;
       _kbState = 'idle';
       _kbTimer = 20 + Math.random() * 40;
+    }
+  }
+
+  // ── Pickups + player grenades (L2) ───────────────────
+  pickupManager?.update(dt, player.x, player.z);
+  if (_grCooldown > 0) _grCooldown -= dt;
+  for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
+    if (!_playerGrenades3D[i].update(dt)) {
+      _playerGrenades3D[i].dispose();
+      _playerGrenades3D.splice(i, 1);
     }
   }
 
