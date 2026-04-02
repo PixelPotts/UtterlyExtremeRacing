@@ -2,7 +2,7 @@
 
 ## Git
 - **Commit every change immediately after making it** — no exceptions
-- Remote: https://github.com/PixelPotts/UtterlyExtremeRacing.git
+- Remote: git@github.com:PixelPotts/UtterlyExtremeRacing.git
 - Push to `origin main` after committing unless told otherwise
 
 ## Project
