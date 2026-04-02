@@ -331,7 +331,8 @@ export class SplitRoadSegment extends RaceSegment {
 // Dramatic low-poly terrain hills extending ~140 m on both sides of the road.
 // Bright light-blue wireframe edges give a neon synthwave aesthetic.
 
-const _HILL_DARK_MAT = new THREE.MeshBasicMaterial({ color: 0x020814, side: THREE.DoubleSide });
+// vertexColors: true — per-vertex edge-glow baked in _buildHillMeshes
+const _HILL_DARK_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
 const _HILL_EDGE_MAT = new THREE.MeshBasicMaterial({ color: 0x66ddff, wireframe: true });
 const _HILL_GLOW_MAT = new THREE.MeshBasicMaterial({
   color: 0x33aaee, wireframe: true,
@@ -349,7 +350,8 @@ function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
   const PI2 = Math.PI * 2;
   const roadH0 = p0.y + 0.42;
   const roadH1 = p1.y + 0.42;
-  const verts   = [];
+  const verts  = [];
+  const colors = [];  // per-vertex edge glow: cyan at mesh borders, black inside
 
   for (let j = 0; j <= NZ; j++) {
     const tf  = j / NZ;
@@ -373,6 +375,12 @@ function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
          2.5 * Math.sin(wx * PI2 /  28 + 4.20) * Math.cos(wz * PI2 /  32 + 2.10);
 
       verts.push(wx, bH + fade * dh, wz);
+
+      // Edge proximity: 0 at mesh border, ramps to 1.0 over ~1.5 grid units
+      const edgeDist = Math.min(i, NX - i, j, NZ - j);
+      const t = Math.min(1, edgeDist / 1.5);
+      const g = (1 - t) * (1 - t) * 0.13;   // quadratic falloff, max 0.13
+      colors.push(g * 0.30, g * 0.55, g);    // cyan tint: R×0.30, G×0.55, B×1.0
     }
   }
 
@@ -387,7 +395,8 @@ function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts,  3));
+  geo.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
 

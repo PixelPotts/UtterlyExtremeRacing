@@ -6,6 +6,10 @@ import { EnemyMovement } from './enemy.js';
 // Positions on a sphere centred on the player — always in the FORWARD hemisphere,
 // wandering between random elevations / azimuths at varying speeds.
 
+// ── Shared laser geometry (single killbot — still avoids re-alloc per spawn) ──
+const _LASER_CORE_GEO = new THREE.CylinderGeometry(0.125, 0.125, 1, 6);
+const _LASER_GLOW_GEO = new THREE.CylinderGeometry(1.1, 1.1, 1, 8);
+
 // ── Preload cache ─────────────────────────────────────────────────────────────
 let _cachedGltf = null;
 export function preloadKillBot1(onProgress) {
@@ -43,17 +47,6 @@ export class KillBot1 extends EnemyMovement {
 
     this._model = null;
 
-    // Debug line (player → bot)
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-    const mat = new THREE.LineBasicMaterial({ color: 0xff0000, depthTest: false });
-    this._debugLine = new THREE.Line(geo, mat);
-    this._debugLine.frustumCulled = false;
-    this._debugLine.renderOrder   = 999;
-    scene.add(this._debugLine);
-
-    this._dbgTick = 0;
-
     // Laser system
     this._buildLaser();
   }
@@ -67,10 +60,14 @@ export class KillBot1 extends EnemyMovement {
       model.traverse(c => {
         if (!c.isMesh) return;
         c.castShadow = true;
+        c.frustumCulled = false;
         const mats = Array.isArray(c.material) ? c.material : [c.material];
         mats.forEach(m => {
-          if (m && m.emissive !== undefined) {
-            m.emissive.setHex(0x111111);
+          if (!m || m.emissive === undefined) return;
+          // Only add emissive glow to non-black materials (red accent parts)
+          const bc = m.color;
+          if (bc && (bc.r + bc.g + bc.b) > 0.15) {
+            m.emissive.setHex(0x220000);
             m.emissiveIntensity = 1.0;
           }
         });
@@ -89,19 +86,18 @@ export class KillBot1 extends EnemyMovement {
   // ── Laser ─────────────────────────────────────────────────────────────────
   _buildLaser() {
     // Core beam — unit-height cylinder, Y-scaled per frame to match distance
-    const coreGeo = new THREE.CylinderGeometry(0.125, 0.125, 1, 6);
     this._laserCore = new THREE.Mesh(
-      coreGeo,
+      _LASER_CORE_GEO,
       new THREE.MeshBasicMaterial({ color: 0xff0000 })
     );
     this._laserCore.visible = false;
     this._laserCore.frustumCulled = false;
+    this._laserCore.userData.sharedGeo = true;
     this.scene.add(this._laserCore);
 
     // Glow layer — wider, additive
-    const glowGeo = new THREE.CylinderGeometry(1.1, 1.1, 1, 8);
     this._laserGlow = new THREE.Mesh(
-      glowGeo,
+      _LASER_GLOW_GEO,
       new THREE.MeshBasicMaterial({
         color: 0xff0000,
         transparent: true,
@@ -112,6 +108,7 @@ export class KillBot1 extends EnemyMovement {
     );
     this._laserGlow.visible = false;
     this._laserGlow.frustumCulled = false;
+    this._laserGlow.userData.sharedGeo = true;
     this.scene.add(this._laserGlow);
 
     // SpotLight — illuminates road and player
@@ -254,20 +251,6 @@ export class KillBot1 extends EnemyMovement {
     this.t     = cT;
     this.speed = carSpeed;
 
-    // ── Debug line ─────────────────────────────────────────────────────────
-    const pts = this._debugLine.geometry.attributes.position.array;
-    pts[0] = carX;           pts[1] = baseY + 1.2;             pts[2] = carZ;
-    pts[3] = this._enemyX;   pts[4] = this.group.position.y;   pts[5] = this._enemyZ;
-    this._debugLine.geometry.attributes.position.needsUpdate = true;
-
-    if (++this._dbgTick % 120 === 0) {
-      console.log('[KillBot1] carAngle=', carAngle.toFixed(3),
-        '  fwd=(', fwdX.toFixed(2), fwdZ.toFixed(2), ')',
-        '  bot=(', this._enemyX.toFixed(1), this.group.position.y.toFixed(1), this._enemyZ.toFixed(1), ')',
-        '  player=(', carX.toFixed(1), carZ.toFixed(1), ')',
-        '  theta=', this._theta.toFixed(2), '  phi=', this._phi.toFixed(2));
-    }
-
     // ── Laser ──────────────────────────────────────────────────────────────
     this._updateLaser(dt, carX, carZ, carAngle, surfaceY);
 
@@ -344,18 +327,13 @@ export class KillBot1 extends EnemyMovement {
 
   // ── Dispose ───────────────────────────────────────────────────────────────
   dispose() {
-    if (this._debugLine) {
-      this.scene.remove(this._debugLine);
-      this._debugLine.geometry.dispose();
-      this._debugLine = null;
-    }
-    // Laser objects
     [this._laserCore, this._laserGlow, this._laserSpot,
      this._laserSpotTarget, this._laserSrcLight].forEach(o => {
       if (o) this.scene.remove(o);
     });
-    if (this._laserCore) { this._laserCore.geometry.dispose(); this._laserCore.material.dispose(); }
-    if (this._laserGlow) { this._laserGlow.geometry.dispose(); this._laserGlow.material.dispose(); }
+    // Geometries are shared module-level constants — only dispose materials
+    if (this._laserCore) this._laserCore.material.dispose();
+    if (this._laserGlow) this._laserGlow.material.dispose();
     super.dispose();
   }
 }
