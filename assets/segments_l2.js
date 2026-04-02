@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { LineSegments2 }      from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial }        from 'three/addons/lines/LineMaterial.js';
 import { Kerb, KERB_NONE, RaceSegment } from './segments.js';
 
 // Emissive lane stripe materials (shared geometry via quads, no dispose needed)
@@ -333,14 +336,16 @@ export class SplitRoadSegment extends RaceSegment {
 
 // vertexColors: true — per-vertex edge-glow baked in _buildHillMeshes
 const _HILL_DARK_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide });
-const _HILL_EDGE_MAT = new THREE.MeshBasicMaterial({ color: 0x66ddff, wireframe: true });
-const _HILL_GLOW_MAT = new THREE.MeshBasicMaterial({
-  color: 0x33aaee, wireframe: true,
-  transparent: true, opacity: 0.30,
-  depthWrite: false, blending: THREE.AdditiveBlending,
+
+// Thick line materials — LineMaterial renders lines as screen-space quads
+const _HILL_LINE_RES  = new THREE.Vector2(window.innerWidth || 1920, window.innerHeight || 1080);
+const _HILL_EDGE_L2_MAT = new LineMaterial({ color: 0x66ddff, linewidth: 3, resolution: _HILL_LINE_RES });
+const _HILL_GLOW_L2_MAT = new LineMaterial({
+  color: 0x33aaee, linewidth: 9, resolution: _HILL_LINE_RES,
+  transparent: true, opacity: 0.20, depthWrite: false, blending: THREE.AdditiveBlending,
 });
 
-const _HILL_NX   = 9;    // lateral quad columns (low poly)
+const _HILL_NX   = 3;    // was 9 — ÷3 poly count
 const _HILL_NZ   = 3;    // longitudinal rows per segment
 const _HILL_WIDE = 140;  // metres per side from kerb edge
 
@@ -379,7 +384,7 @@ function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
       // Edge proximity: 0 at mesh border, ramps to 1.0 over ~1.5 grid units
       const edgeDist = Math.min(i, NX - i, j, NZ - j);
       const t = Math.min(1, edgeDist / 1.5);
-      const g = (1 - t) * (1 - t) * 0.13;   // quadratic falloff, max 0.13
+      const g = (1 - t) * (1 - t) * 0.043;  // 3× darker than before (was 0.13)
       colors.push(g * 0.30, g * 0.55, g);    // cyan tint: R×0.30, G×0.55, B×1.0
     }
   }
@@ -403,10 +408,14 @@ function _buildHillMeshes(p0, p1, px0, pz0, px1, pz1, kOuter, side, scene) {
   const fill = new THREE.Mesh(geo, _HILL_DARK_MAT);
   fill.receiveShadow = true;
 
-  // Share same geometry — fill's traversal will dispose it; edge+glow skip disposal
-  const edge = new THREE.Mesh(geo, _HILL_EDGE_MAT);
-  edge.userData.sharedGeo = true;
-  const glow = new THREE.Mesh(geo, _HILL_GLOW_MAT);
+  // Build thick edges via LineSegments2 (EdgesGeometry → LineSegmentsGeometry)
+  const edgesGeo = new THREE.EdgesGeometry(geo);
+  const linesGeo = new LineSegmentsGeometry().fromEdgesGeometry(edgesGeo);
+  edgesGeo.dispose();   // intermediate no longer needed
+
+  const edge = new LineSegments2(linesGeo, _HILL_EDGE_L2_MAT);
+  // glow shares linesGeo — edge disposes it on segment drop, glow is skipped
+  const glow = new LineSegments2(linesGeo, _HILL_GLOW_L2_MAT);
   glow.userData.sharedGeo = true;
 
   scene.add(fill, edge, glow);
