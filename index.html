@@ -3019,7 +3019,7 @@ function genPtL2() {
       if (step === _LOOP_ENTRY_SEGS - 1) {
         // Capture the exact position at the loop body entry
         _loopEntryPos = pPos.clone();
-        _loopSegStart = path.length - 1;  // segment index of first loop body seg
+        _loopSegStart = path.length;  // segment index of first loop body seg (pushed on next step)
         segCtx.loopState = {
           segStart:   _loopSegStart,
           entrySegs:  _LOOP_ENTRY_SEGS,

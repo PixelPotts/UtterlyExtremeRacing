@@ -369,6 +369,12 @@ export class LoopSegment extends RaceSegment {
       };
     };
 
+    // Ribbon must be DoubleSide — at θ=π the camera is below looking up (back-face)
+    const _ribbonRoadMat = M.roadBlack.clone();
+    _ribbonRoadMat.side = THREE.DoubleSide;
+    const _ribbonKerbMat = M.kerbNeonGreen.clone();
+    _ribbonKerbMat.side = THREE.DoubleSide;
+
     const debugRoadMat = ctx.loopDebug
       ? new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, side: THREE.DoubleSide })
       : null;
@@ -393,7 +399,7 @@ export class LoopSegment extends RaceSegment {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs, 2));
       g.setIndex(idx); g.computeVertexNormals();
-      const m = new THREE.Mesh(g, debugRoadMat ?? M.roadBlack);
+      const m = new THREE.Mesh(g, debugRoadMat ?? _ribbonRoadMat);
       m.receiveShadow = true; scene.add(m); meshes.push(m);
     }
 
@@ -423,7 +429,7 @@ export class LoopSegment extends RaceSegment {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs, 2));
       g.setIndex(idx); g.computeVertexNormals();
-      const m = new THREE.Mesh(g, debugKerbMat ?? M.kerbNeonGreen);
+      const m = new THREE.Mesh(g, debugKerbMat ?? _ribbonKerbMat);
       m.receiveShadow = true; m.castShadow = true; scene.add(m); meshes.push(m);
     }
 
