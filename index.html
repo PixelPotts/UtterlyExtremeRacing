@@ -2410,7 +2410,7 @@ let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
 // ── Pickup manager ─────────────────────────────────────
 // [DEBUG CUT C] pickups disabled — testing if pickup geometry/materials cause shader recompilation
-pickupManager = { on(){}, spawnForSeg(){}, dropSeg(){}, reset(){} };
+pickupManager = { on(){}, spawnForSeg(){}, dropSeg(){}, reset(){}, update(){} };
 pickupFrontier = DECO_AHEAD + 6;
 
 // ── Load gun pickup ────────────────────────────────────
