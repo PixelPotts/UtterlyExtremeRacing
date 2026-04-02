@@ -387,7 +387,7 @@ const BOOST_DUR  = 1.5;  // seconds of launch boost
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true;
+renderer.shadowMap.enabled = false; // [DEBUG CUT B] shadows off — testing shadow depth-pass compilation as stutter cause
 document.body.appendChild(renderer.domElement);
 const etherComposer = new EtherComposer(renderer, innerWidth, innerHeight);
 
