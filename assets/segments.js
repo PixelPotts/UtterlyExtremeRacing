@@ -116,11 +116,13 @@ export class BuildingsSegment extends RaceSegment {
         const raw     = BUILDING_DEFS[Math.random() * BUILDING_DEFS.length | 0];
         const scaledD = halfRange * 2;   // always 12m — fills the window exactly
         if (cursor + scaledD > halfRange) break;
-        const baseDef = { ...raw, w: raw.w * 3, h: raw.h * 3, d: scaledD, easement: raw.easement * 3 };
+        const baseDef  = { ...raw, w: raw.w * 3, h: raw.h * 3, d: scaledD, easement: raw.easement * 3 };
         const canEnter = baseDef.doorType !== 'garage' && baseDef.h <= 84;
-        const def = (canEnter && Math.random() < 0.10)
-          ? { ...baseDef, enterable: true }
-          : baseDef;
+        // Mission system owns all enterable buildings — no random enterable spawning.
+        const mo = ctx.missionOverride;
+        const forceMission = mo && !mo._applied && canEnter;
+        const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
+        if (forceMission) { mo._applied = true; mo._side = s; }
         const center = cursor + def.d * 0.5;
         const depth  = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
         placements[s] = { def, center, depth };
@@ -182,6 +184,9 @@ export class BuildingsSegment extends RaceSegment {
         const dw = def.doorType === 'garage' ? def.w * 0.65 : (def.doorType === 'double' ? 2.0 : 1.0);
         bg.userData.enterable = true;
         bg.userData.doorHW    = dw / 2 + 0.4;
+        // Tag mission buildings so enterBuilding() can notify MissionSystem
+        const mo = ctx.missionOverride;
+        if (mo?.stageId && s === mo._side) bg.userData.missionId = mo.stageId;
       }
       arr.push(bg);
     }

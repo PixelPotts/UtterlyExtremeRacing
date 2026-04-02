@@ -264,7 +264,7 @@ export class Building {
       const dw      = doorType === 'double' ? 2.0 : 1.0;
       const awW     = Math.min(dw + 2.6, d * 0.55);
       const awDepth = 1.65;
-      const awMat = AWNING_MATS[Math.floor(Math.random() * AWNING_MATS.length)];
+      const awMat = def.awningMatIdx != null ? AWNING_MATS[def.awningMatIdx] : AWNING_MATS[Math.floor(Math.random() * AWNING_MATS.length)];
 
       // Flat awning canopy
       const aw = new THREE.Mesh(new THREE.BoxGeometry(awDepth, 0.12, awW), awMat);
