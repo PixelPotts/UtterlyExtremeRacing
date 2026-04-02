@@ -1523,7 +1523,7 @@ function spawnNeonPole(x, z, angle, side, si) {
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 4), _neonLampMat);
   lamp.position.set(ax, lampY, az);
   scene.add(lamp); arr.push(lamp);
-  // Tight downward SpotLight — pool used in both L1 and L2 (fixed count = no shader recompile)
+  // Tight downward SpotLight — use pool in L2 (fixed count), create directly in L1
   if (_neonLightPool) {
     const slot = _neonLightPool.acquireSpot(ax, lampY, az, ax, pathY, az);
     // Tag the pole mesh so dropDecorations can release the slot
@@ -2412,12 +2412,6 @@ function dropDecorations(si) {
     delete obstaclesBySeg[si];
   }
 }
-
-// ── Neon light pool for L1 — fixed count prevents NUM_SPOT/POINT_LIGHTS
-//    shader recompilation whenever building lamps stream in/out.
-//    Same architecture as L2; must be created BEFORE the decoration burst
-//    so compileAsync sees the final stable light count.
-_neonLightPool = new NeonLightPool(scene, 44, 8);
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
