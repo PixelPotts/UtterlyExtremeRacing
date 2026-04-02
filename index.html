@@ -1523,20 +1523,12 @@ function spawnNeonPole(x, z, angle, side, si) {
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.22, 6, 4), _neonLampMat);
   lamp.position.set(ax, lampY, az);
   scene.add(lamp); arr.push(lamp);
-  // Tight downward SpotLight — use pool in L2 (fixed count), create directly in L1
+  // [DEBUG CUT A] SpotLights disabled — testing if dynamic light count is the stutter cause
   if (_neonLightPool) {
     const slot = _neonLightPool.acquireSpot(ax, lampY, az, ax, pathY, az);
-    // Tag the pole mesh so dropDecorations can release the slot
     pole.userData.neonPoolSlot = slot;
-  } else {
-    const sl = new THREE.SpotLight(0x00ff88, 900, 32, Math.PI / 9, 0.18, 1.6);
-    sl.castShadow = false;
-    sl.position.set(ax, lampY, az);
-    sl.target.position.set(ax, pathY, az);
-    sl.target.updateMatrixWorld();
-    scene.add(sl); scene.add(sl.target);
-    arr.push(sl, sl.target);
   }
+  // else: no SpotLight created in L1 — NUM_SPOT_LIGHTS stays constant
   return arr;
 }
 
