@@ -369,6 +369,17 @@ const DECO_AHEAD = 65;   // decoration segments built ahead (less than AHEA)
 const KEEP       = 28;   // segments behind
 const ZONE_MIN_SEGS = 16;  // ~208 m min per zone
 const ZONE_MAX_SEGS = 54;  // ~702 m max per zone
+
+// ── Debug logger (run: node debug-server.js) ───────────
+const _DBG = (() => {
+  const URL = 'http://localhost:9999/log';
+  const buf = [];
+  let timer = null;
+  function flush() { if (!buf.length) return; fetch(URL, { method:'POST', body: buf.splice(0).join('\n') }).catch(()=>{}); timer = null; }
+  function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 300); }
+  return { log };
+})();
+let _dbgLastProg = 0;
 const LANES      = [-10.5, -3.5, 3.5, 10.5]; // lane center offsets (perpendicular)
 const BOOST_DUR  = 1.5;  // seconds of launch boost
 
@@ -1199,6 +1210,7 @@ function tickZone() {
     zoneLeft = ZONE_MIN_SEGS + Math.floor(Math.random() * (ZONE_MAX_SEGS - ZONE_MIN_SEGS + 1)) - 1;
     // zoneTypes.length = segment index where this zone starts (push happens after)
     MissionSystem.onZoneStart(curZone, zoneTypes.length);
+    _DBG.log(`ZONE_CHANGE\t→ ${curZone}\tsi=${zoneTypes.length}\tzoneLeft=${zoneLeft}`);
   }
   zoneTypes.push(curZone);
 }
@@ -2283,6 +2295,7 @@ const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollid
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
+  const _dT0 = performance.now();
   const seg = _segTypes[zoneTypes[si]];
 
   // Inject mission spawn if one is pending for this segment
@@ -2339,6 +2352,7 @@ function addDecorations(si) {
     _spawnEtherCoil(si);
   }
 
+  _DBG.log(`DECO\tsi=${si}\tzone=${zoneTypes[si]??'?'}\tms=${(performance.now()-_dT0).toFixed(2)}\tmeshes=${decorSeg[si]?.length??0}`);
 }
 
 function dropDecorations(si) {
@@ -3241,6 +3255,7 @@ function exitBuilding() {
 // ── Game Loop ──────────────────────────────────────────
 function frame() {
   _rafId = requestAnimationFrame(frame);
+  const _ft0 = performance.now();
   const dt = Math.min(clock.getDelta(), .05);
 
   if (raceStarted && speedMul > 1) speedMul = Math.max(1, speedMul - dt / BOOST_DUR);
@@ -3841,6 +3856,10 @@ function frame() {
     }
   }
 
+  { const _fms = performance.now() - _ft0;
+    const _pc = renderer.info.programs?.length ?? 0;
+    if (_pc !== _dbgLastProg) { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
+    if (_fms > 16 && raceStarted) _DBG.log(`STUTTER_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}`); }
   etherComposer.render(scene, cam, player.x, player.z, dt);
 }
 
@@ -4149,6 +4168,7 @@ function startLevel2() {
 
 function frameL2() {
   _rafId = requestAnimationFrame(frameL2);
+  const _ft0 = performance.now();
   const dt = Math.min(clock.getDelta(), 0.05);
   let nitroBoost = 1.0;
   if (keys.shift && player.driftCharge > 0.1) {
@@ -4279,6 +4299,10 @@ function frameL2() {
   _zoneHudEl.textContent = `L${currentLevel}  ${_ZONE_LABEL[zoneTypes[player?.seg ?? 0]] ?? ''}`;
   if (!walkMode) drawGauges();
   Minimap.update(path, player.seg, player.x, player.z, player.angle);
+  { const _fms = performance.now() - _ft0;
+    const _pc = renderer.info.programs?.length ?? 0;
+    if (_pc !== _dbgLastProg) { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
+    if (_fms > 16) _DBG.log(`STUTTER_L2\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}`); }
   renderer.render(scene, cam);
 }
 </script>
