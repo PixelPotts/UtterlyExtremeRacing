@@ -299,6 +299,7 @@ import { SEGMENT_TYPES_L2 }                                    from './assets/se
 import { NeonLightPool }                                        from './assets/neonlightpool.js';
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
+import { RockMonster } from './assets/rockmonster.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
@@ -1637,6 +1638,31 @@ function _spawnPedestrians(si) {
   }
 }
 
+// ── Rock monster (mountains zone) ─────────────────────────────────────────────
+let _lastMonsterSeg = -999; // ensure minimum spacing between spawns
+function _spawnRockMonster(si) {
+  if (!path[si]) return;
+  if (si - _lastMonsterSeg < 20) return; // one monster per ~260 m
+  _lastMonsterSeg = si;
+
+  const { pos, angle } = path[si];
+  const px   = Math.cos(angle), pz  = Math.sin(angle); // lateral (perp to travel)
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const dist = 42 + Math.random() * 16; // 42–58 m from road center
+
+  const mx = pos.x + px * side * dist;
+  const mz = pos.z + pz * side * dist;
+
+  const onHit = () => {
+    player.speed  = Math.max(0, player.speed * 0.60);
+    camBumpVel   += 3.0;
+  };
+
+  const monster = new RockMonster(scene, mx, mz, pos.y, pos.x, pos.z, onHit);
+  (obstaclesBySeg[si] ??= []).push(monster);
+  obstacles.push(monster);
+}
+
 // ── Neon cube obstacle (Level 2) ─────────────────────────────────────────────
 function _spawnNeonCube(si) {
   if (!path[si]) return;
@@ -1791,7 +1817,8 @@ function addDecorations(si) {
     if (citySegForOil % 3 === 0) _spawnOilSpill(si);
   }
   if (seg?.hasPedestrians) _spawnPedestrians(si);
-  if (zoneTypes[si] === 'neonRoad' && si > 10 && si % 8 === 0) _spawnNeonCube(si);
+  if (zoneTypes[si] === 'neonRoad'    && si > 10 && si % 8 === 0) _spawnNeonCube(si);
+  if (zoneTypes[si] === 'mountains') _spawnRockMonster(si);
 
 }
 
@@ -3240,6 +3267,7 @@ function teardownL1() {
   _waterUniforms.uTime.value = 0;
   _snowUniforms.uTime.value  = 0;
   _resetTrackCanvas(0, 0);
+  _lastMonsterSeg = -999;
   _segTypes = SEGMENT_TYPES;
 
   // Reset game state
