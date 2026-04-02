@@ -358,8 +358,6 @@ const ZONE_MIN_SEGS = 16;  // ~208 m min per zone
 const ZONE_MAX_SEGS = 54;  // ~702 m max per zone
 const LANES      = [-10.5, -3.5, 3.5, 10.5]; // lane center offsets (perpendicular)
 const BOOST_DUR  = 1.5;  // seconds of launch boost
-const LOOP_DEBUG         = true;   // ← set false to disable all loop debug overlays
-const LOOP_DEBUG_SIDECAM = false;  // ← set true for side-view during loop
 
 // ── Renderer ──────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1433,7 +1431,7 @@ function spawnIntersectionLights(si, pos, angle) {
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, loopState: null, loopDebug: LOOP_DEBUG };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks };
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
@@ -1464,53 +1462,6 @@ function addDecorations(si) {
   if (seg?.hasPedestrians) _spawnPedestrians(si);
   if (zoneTypes[si] === 'neonRoad' && si > 10 && si % 8 === 0) _spawnNeonCube(si);
 
-  // ── LOOP_DEBUG markers ──────────────────────────────────────────────────────
-  if (LOOP_DEBUG && path[si]) {
-    const zt = zoneTypes[si];
-    const dbgColor = zt === 'loopEntry' ? 0xffdd00
-                   : zt === 'loop'      ? 0xff2200
-                   : zt === 'loopExit'  ? 0x00ff66
-                   : null;
-    if (dbgColor !== null) {
-      const sph = new THREE.Mesh(
-        new THREE.SphereGeometry(0.6, 8, 6),
-        new THREE.MeshBasicMaterial({ color: dbgColor })
-      );
-      sph.position.copy(path[si].pos);
-      scene.add(sph);
-      decorSeg[si].push(sph);
-    }
-
-    // Cyan pin + magenta circle at the loopState capture point
-    if (zt === 'loopEntry' && si === _loopSegStart && segCtx.loopState) {
-      const ls = segCtx.loopState;
-      // Tall cyan pin
-      const cyl = new THREE.Mesh(
-        new THREE.CylinderGeometry(1, 1, 60, 8),
-        new THREE.MeshBasicMaterial({ color: 0x00ffff })
-      );
-      cyl.position.set(ls.entryPos.x, ls.entryY + 30, ls.entryPos.z);
-      scene.add(cyl);
-      decorSeg[si].push(cyl);
-
-      // Magenta loop circle outline in the vertical plane
-      const fwdX = Math.sin(ls.entryAngle), fwdZ = -Math.cos(ls.entryAngle);
-      const R = ls.R;
-      const circPts = [];
-      for (let k = 0; k <= 64; k++) {
-        const a = (k / 64) * 2 * Math.PI;
-        circPts.push(new THREE.Vector3(
-          ls.entryPos.x + fwdX * R * Math.sin(a),
-          ls.entryY + R * (1 - Math.cos(a)),
-          ls.entryPos.z + fwdZ * R * Math.sin(a)
-        ));
-      }
-      const circGeo = new THREE.BufferGeometry().setFromPoints(circPts);
-      const circ = new THREE.LineLoop(circGeo, new THREE.LineBasicMaterial({ color: 0xff00ff }));
-      scene.add(circ);
-      decorSeg[si].push(circ);
-    }
-  }
 }
 
 function dropDecorations(si) {
@@ -1819,7 +1770,7 @@ const _ZONE_LABEL = {
   trees: 'Forest', buildings: 'City', tunnel: 'Tunnel', dirt: 'Dirt',
   bridge: 'Bridge', intersection: 'City', start: 'Start',
   neonRoad: 'Neon Road', neonRing: 'Neon Road', splitRoad: 'Split Road',
-  loopEntry: 'Loop Ahead', loop: 'Loop', loopExit: 'Loop',
+
 };
 const gaugesEl  = document.getElementById('gauges');
 const gaugesCtx = gaugesEl.getContext('2d');
@@ -2972,133 +2923,8 @@ function teardownL1() {
 // teardownL1 already resets to zero before this is called.
 // Split-run scheduling state (reset in startLevel2):
 let _l2SplitActive = false, _l2SplitStart = 0, _l2SplitLen = 0, _l2SplitGapSegs = 0;
-// Loop-de-loop state (reset in startLevel2)
-const _LOOP_R          = 30;
-const _LOOP_N          = Math.round(2 * Math.PI * _LOOP_R / SLEN / 4) * 4; // round to mult of 4 → 16
-const _LOOP_ENTRY_SEGS = 10;
-const _LOOP_EXIT_SEGS  = 10;
-let _l2LoopArmed = false, _l2LoopStep = 0, _l2LoopDone = false;
-let _loopSegStart = -1, _loopSegEnd = -1;
-let _loopEntryPos = null, _loopEntryAngle = 0, _loopEntryY = 0;
-let _loopDebugLog = [];
-// Hardcoded opening: 3× looptrack → 25 basic segs
-let _l2HardcodeLoopsDone = 0;
-let _l2HardcodeAllDone   = false;
-let _l2NextLoopAt        = 10;
 
 function genPtL2() {
-  // ── Hardcoded opening: 3× (looptrack → 25 basic segs) ────────────────────
-  if (!_l2HardcodeAllDone && !_l2SplitActive && !_l2LoopArmed
-      && _l2HardcodeLoopsDone < 3 && path.length >= _l2NextLoopAt) {
-    _l2LoopArmed    = true;
-    _l2LoopStep     = 0;
-    _l2LoopDone     = true;        // block the normal single-loop arming below
-    _l2SplitGapSegs = 0;
-    _loopEntryAngle = pAng;
-    _loopEntryY     = pHeightY;
-    _loopEntryPos   = pPos.clone();
-    _l2HardcodeLoopsDone++;
-  }
-  // ── Arm loop once per run (after ~120 segs, when hardcoded sequence is done) ──
-  if (_l2HardcodeAllDone && !_l2LoopDone && !_l2SplitActive && !_l2LoopArmed && path.length >= 120) {
-    _l2LoopArmed    = true;
-    _l2LoopStep     = 0;
-    _l2LoopDone     = true;
-    _l2SplitGapSegs = 0;
-    _loopEntryAngle = pAng;
-    _loopEntryY     = pHeightY;
-    _loopEntryPos   = pPos.clone();
-  }
-
-  // ── Loop path injection ────────────────────────────────────────────────────
-  if (_l2LoopArmed) {
-    const step  = _l2LoopStep++;
-    const total = _LOOP_ENTRY_SEGS + _LOOP_N + _LOOP_EXIT_SEGS;
-
-    if (step < _LOOP_ENTRY_SEGS) {
-      // Straight flat lead-in
-      pPos.x += Math.sin(_loopEntryAngle) * SLEN;
-      pPos.z -= Math.cos(_loopEntryAngle) * SLEN;
-      pPos.y  = _loopEntryY;
-      pHeightY = _loopEntryY;
-      path.push({ pos: pPos.clone(), angle: _loopEntryAngle });
-      zoneTypes.push('loopEntry');
-      if (step === _LOOP_ENTRY_SEGS - 1) {
-        // Capture the exact position at the loop body entry
-        _loopEntryPos = pPos.clone();
-        _loopSegStart = path.length;  // segment index of first loop body seg (pushed on next step)
-        segCtx.loopState = {
-          segStart:   _loopSegStart,
-          entrySegs:  _LOOP_ENTRY_SEGS,
-          N:          _LOOP_N,
-          entryPos:   _loopEntryPos.clone(),
-          entryAngle: _loopEntryAngle,
-          entryY:     _loopEntryY,
-          R:          _LOOP_R,
-        };
-      }
-    } else if (step < _LOOP_ENTRY_SEGS + _LOOP_N) {
-      // Vertical circle: θ advances from 0 to 2π over LOOP_N steps
-      const li   = step - _LOOP_ENTRY_SEGS + 1;   // 1-based within loop body
-      const θ    = (li / _LOOP_N) * 2 * Math.PI;
-      const fwdX =  Math.sin(_loopEntryAngle);
-      const fwdZ = -Math.cos(_loopEntryAngle);
-      pPos.x = _loopEntryPos.x + fwdX * _LOOP_R * Math.sin(θ);
-      pPos.y = _loopEntryY     + _LOOP_R * (1 - Math.cos(θ));
-      pPos.z = _loopEntryPos.z + fwdZ * _LOOP_R * Math.sin(θ);
-      pHeightY = pPos.y;
-      // Keep yaw constant — the pitch (rotation.x) handles visual tilt
-      path.push({ pos: pPos.clone(), angle: _loopEntryAngle });
-      zoneTypes.push('loop');
-      if (step === _LOOP_ENTRY_SEGS + _LOOP_N - 1) {
-        _loopSegEnd = path.length - 1;  // segment index of last loop body seg
-      }
-    } else {
-      // Straight flat exit
-      pPos.x += Math.sin(_loopEntryAngle) * SLEN;
-      pPos.z -= Math.cos(_loopEntryAngle) * SLEN;
-      pPos.y  = _loopEntryY;
-      pHeightY = _loopEntryY;
-      path.push({ pos: pPos.clone(), angle: _loopEntryAngle });
-      zoneTypes.push('loopExit');
-    }
-
-    if (LOOP_DEBUG) {
-      _loopDebugLog.push({
-        step,
-        zoneType:    zoneTypes[zoneTypes.length - 1],
-        pos:         { x: pPos.x, y: pPos.y, z: pPos.z },
-        loopSegStart: _loopSegStart,
-        loopSegEnd:   _loopSegEnd,
-      });
-    }
-
-    if (_l2LoopStep >= total) {
-      _l2LoopArmed = false;
-      pAng         = _loopEntryAngle;   // re-sync heading to normal gen
-      pTgt         = pAng;
-      if (_l2HardcodeLoopsDone < 3) {
-        // Schedule next hardcoded loop after 25 basic neonRoad segments
-        _l2NextLoopAt   = path.length + 25;
-        _l2SplitGapSegs = 30;
-      } else if (!_l2HardcodeAllDone) {
-        _l2HardcodeAllDone = true;
-        _l2SplitGapSegs    = 20;
-      } else {
-        _l2SplitGapSegs = 20;
-      }
-      if (LOOP_DEBUG) {
-        console.log('LOOP_DEBUG', JSON.parse(JSON.stringify(_loopDebugLog)));
-        const blob = new Blob([JSON.stringify(_loopDebugLog, null, 2)], { type: 'application/json' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'loop_debug.json';
-        a.click();
-      }
-    }
-    return;
-  }
-
   // ── Normal generation ──────────────────────────────────────────────────────
   if (pTimer > 0) { pTimer--; }
   else {
@@ -3173,16 +2999,6 @@ function startLevel2() {
   // Start the L2 path well above sea level (y=0) so the gap always shows water below
   pHeightY = 22; pHeightVel = 0; pTargetY = 22;
   _l2SplitActive = false; _l2SplitStart = 0; _l2SplitLen = 0; _l2SplitGapSegs = 0;
-  _l2LoopArmed = false; _l2LoopStep = 0; _l2LoopDone = false;
-  _loopSegStart = -1; _loopSegEnd = -1; _loopEntryPos = null; _loopEntryAngle = 0; _loopEntryY = 0;
-  _l2HardcodeLoopsDone = 0; _l2HardcodeAllDone = false; _l2NextLoopAt = 10;
-  segCtx.loopState = null;
-  if (LOOP_DEBUG) {
-    ambLight.intensity = 5;
-    renderer.toneMappingExposure = 3;
-    scene.fog = null;
-    _loopDebugLog = [];
-  }
 
   // Generate initial path with hills + curves
   for (let i = 0; i < AHEA + KEEP + 30; i++) genPtL2();
@@ -3307,32 +3123,8 @@ function frameL2() {
   }
   const effectiveMul = speedMul * nitroBoost;
 
-  // ── Loop physics: on-rails Y + full-rotation pitch ────────────────────────
-  const _preInLoop = _loopSegStart >= 0 && player.seg >= _loopSegStart && player.seg <= _loopSegEnd;
-  let playerSY;
-  if (_preInLoop) {
-    const θ0 = (2 * Math.PI * (player.seg - _loopSegStart + player.t)) / _LOOP_N;
-    playerSY   = _loopEntryY + _LOOP_R * (1 - Math.cos(θ0));
-    player.vy  = 0;
-  } else {
-    playerSY = getFloorY(player.x, player.z, player.seg);
-  }
+  const playerSY = getFloorY(player.x, player.z, player.seg);
   const advanced = player.update(dt, keys, effectiveMul, playerSY, 'asphalt');
-  // Post-update: force XYZ + full loop rotation
-  const _inLoop = _loopSegStart >= 0 && player.seg >= _loopSegStart && player.seg <= _loopSegEnd;
-  if (_inLoop) {
-    const fwdX =  Math.sin(_loopEntryAngle);
-    const fwdZ = -Math.cos(_loopEntryAngle);
-    const θ = (2 * Math.PI * (player.seg - _loopSegStart + player.t)) / _LOOP_N;
-    const loopSY = _loopEntryY + _LOOP_R * (1 - Math.cos(θ));
-    player.x = _loopEntryPos.x + fwdX * _LOOP_R * Math.sin(θ);
-    player.z = _loopEntryPos.z + fwdZ * _LOOP_R * Math.sin(θ);
-    player.group.position.x = player.x;
-    player.group.position.z = player.z;
-    player.group.position.y = loopSY + 0.4;
-    player.group.rotation.x = -θ;   // full 360° pitch around the loop
-    player.vy = 0;
-  }
 
   if (advanced) {
     while (path.length - 1 - player.seg < AHEA + 10) {
@@ -3371,34 +3163,22 @@ function frameL2() {
     }
   }
 
-  // KillBot lifecycle — suppressed during loop zone (±10 segs buffer)
-  const _inLoopZone = _loopSegStart >= 0
-    && player.seg >= _loopSegStart - 10
-    && player.seg <= _loopSegEnd   + 10;
-
+  // KillBot lifecycle
   if (_kbState === 'idle') {
-    if (!_inLoopZone) {
-      _kbTimer -= dt;
-      if (_kbTimer <= 0) {
-        killBot = new KillBot1(scene, path, player.seg + 5, SLEN, { onExplosion: playExplosionAt });
-        if (actx) killBot.initAudio(actx, aBufs);
-        _kbState = 'active';
-        _kbActiveTime = 0;
-      }
+    _kbTimer -= dt;
+    if (_kbTimer <= 0) {
+      killBot = new KillBot1(scene, path, player.seg + 5, SLEN, { onExplosion: playExplosionAt });
+      if (actx) killBot.initAudio(actx, aBufs);
+      _kbState = 'active';
+      _kbActiveTime = 0;
     }
   } else if (_kbState === 'active') {
-    if (_inLoopZone) {
-      // Dismiss immediately when loop zone is entered
+    _kbActiveTime += dt;
+    killBot.update(dt, player.seg, player.t, player.x, player.z, player.speed, player.angle, speedMul,
+      getFloorY(killBot._enemyX, killBot._enemyZ, killBot.seg));
+    if (_kbActiveTime > 35) {
       killBot._fleeing = true;
       _kbState = 'fleeing';
-    } else {
-      _kbActiveTime += dt;
-      killBot.update(dt, player.seg, player.t, player.x, player.z, player.speed, player.angle, speedMul,
-        getFloorY(killBot._enemyX, killBot._enemyZ, killBot.seg));
-      if (_kbActiveTime > 35) {
-        killBot._fleeing = true;
-        _kbState = 'fleeing';
-      }
     }
   } else if (_kbState === 'fleeing') {
     killBot.update(dt, player.seg, player.t, player.x, player.z, player.speed, player.angle, speedMul,
@@ -3428,29 +3208,6 @@ function frameL2() {
     cam.rotation.y = -walker.yaw;
     cam.rotation.x = walker.pitch;
     cam.rotation.z = 0;
-  } else if (_inLoop) {
-    if (LOOP_DEBUG && LOOP_DEBUG_SIDECAM) {
-      // Side-view: camera 120 m to the lateral side of the loop centre
-      const latX =  Math.cos(_loopEntryAngle);
-      const latZ =  Math.sin(_loopEntryAngle);
-      const carPos = player.group.position;
-      cam.position.set(
-        _loopEntryPos.x + latX * 120,
-        _loopEntryY + _LOOP_R * 1.5,
-        _loopEntryPos.z + latZ * 120
-      );
-      cam.lookAt(carPos.x, carPos.y, carPos.z);
-    } else {
-    // Wide-angle loop camera: pull back and track the car around the full circle
-    const carPos  = player.group.position;
-    const camBack = 24;
-    const camUp   = 8;
-    const cx = carPos.x - Math.sin(_loopEntryAngle) * camBack;
-    const cy = carPos.y + camUp;
-    const cz = carPos.z + Math.cos(_loopEntryAngle) * camBack;
-    cam.position.set(cx, cy, cz);
-    cam.lookAt(carPos.x, carPos.y + 1, carPos.z);
-    }
   } else {
     const CDIST = 7;
     const cx = player.x - Math.sin(player.angle) * CDIST;
