@@ -338,6 +338,8 @@ const ZONE_MIN_SEGS = 16;  // ~208 m min per zone
 const ZONE_MAX_SEGS = 54;  // ~702 m max per zone
 const LANES      = [-10.5, -3.5, 3.5, 10.5]; // lane center offsets (perpendicular)
 const BOOST_DUR  = 1.5;  // seconds of launch boost
+const LOOP_DEBUG         = true;   // ← set false to disable all loop debug overlays
+const LOOP_DEBUG_SIDECAM = false;  // ← set true for side-view during loop
 
 // ── Renderer ──────────────────────────────────────────
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1411,7 +1413,7 @@ function spawnIntersectionLights(si, pos, angle) {
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, loopState: null };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, loopState: null, loopDebug: LOOP_DEBUG };
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
@@ -1441,6 +1443,54 @@ function addDecorations(si) {
   }
   if (seg?.hasPedestrians) _spawnPedestrians(si);
   if (zoneTypes[si] === 'neonRoad' && si > 10 && si % 8 === 0) _spawnNeonCube(si);
+
+  // ── LOOP_DEBUG markers ──────────────────────────────────────────────────────
+  if (LOOP_DEBUG && path[si]) {
+    const zt = zoneTypes[si];
+    const dbgColor = zt === 'loopEntry' ? 0xffdd00
+                   : zt === 'loop'      ? 0xff2200
+                   : zt === 'loopExit'  ? 0x00ff66
+                   : null;
+    if (dbgColor !== null) {
+      const sph = new THREE.Mesh(
+        new THREE.SphereGeometry(0.6, 8, 6),
+        new THREE.MeshBasicMaterial({ color: dbgColor })
+      );
+      sph.position.copy(path[si].pos);
+      scene.add(sph);
+      decorSeg[si].push(sph);
+    }
+
+    // Cyan pin + magenta circle at the loopState capture point
+    if (zt === 'loopEntry' && si === _loopSegStart && segCtx.loopState) {
+      const ls = segCtx.loopState;
+      // Tall cyan pin
+      const cyl = new THREE.Mesh(
+        new THREE.CylinderGeometry(1, 1, 60, 8),
+        new THREE.MeshBasicMaterial({ color: 0x00ffff })
+      );
+      cyl.position.set(ls.entryPos.x, ls.entryY + 30, ls.entryPos.z);
+      scene.add(cyl);
+      decorSeg[si].push(cyl);
+
+      // Magenta loop circle outline in the vertical plane
+      const fwdX = Math.sin(ls.entryAngle), fwdZ = -Math.cos(ls.entryAngle);
+      const R = ls.R;
+      const circPts = [];
+      for (let k = 0; k <= 64; k++) {
+        const a = (k / 64) * 2 * Math.PI;
+        circPts.push(new THREE.Vector3(
+          ls.entryPos.x + fwdX * R * Math.sin(a),
+          ls.entryY + R * (1 - Math.cos(a)),
+          ls.entryPos.z + fwdZ * R * Math.sin(a)
+        ));
+      }
+      const circGeo = new THREE.BufferGeometry().setFromPoints(circPts);
+      const circ = new THREE.LineLoop(circGeo, new THREE.LineBasicMaterial({ color: 0xff00ff }));
+      scene.add(circ);
+      decorSeg[si].push(circ);
+    }
+  }
 }
 
 function dropDecorations(si) {
@@ -2904,6 +2954,7 @@ const _LOOP_EXIT_SEGS  = 10;
 let _l2LoopArmed = false, _l2LoopStep = 0, _l2LoopDone = false;
 let _loopSegStart = -1, _loopSegEnd = -1;
 let _loopEntryPos = null, _loopEntryAngle = 0, _loopEntryY = 0;
+let _loopDebugLog = [];
 // Hardcoded opening: 3× looptrack → 25 basic segs
 let _l2HardcodeLoopsDone = 0;
 let _l2HardcodeAllDone   = false;
@@ -2986,6 +3037,16 @@ function genPtL2() {
       zoneTypes.push('loopExit');
     }
 
+    if (LOOP_DEBUG) {
+      _loopDebugLog.push({
+        step,
+        zoneType:    zoneTypes[zoneTypes.length - 1],
+        pos:         { x: pPos.x, y: pPos.y, z: pPos.z },
+        loopSegStart: _loopSegStart,
+        loopSegEnd:   _loopSegEnd,
+      });
+    }
+
     if (_l2LoopStep >= total) {
       _l2LoopArmed = false;
       pAng         = _loopEntryAngle;   // re-sync heading to normal gen
@@ -2999,6 +3060,14 @@ function genPtL2() {
         _l2SplitGapSegs    = 20;
       } else {
         _l2SplitGapSegs = 20;
+      }
+      if (LOOP_DEBUG) {
+        console.log('LOOP_DEBUG', JSON.parse(JSON.stringify(_loopDebugLog)));
+        const blob = new Blob([JSON.stringify(_loopDebugLog, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'loop_debug.json';
+        a.click();
       }
     }
     return;
@@ -3082,6 +3151,12 @@ function startLevel2() {
   _loopSegStart = -1; _loopSegEnd = -1; _loopEntryPos = null; _loopEntryAngle = 0; _loopEntryY = 0;
   _l2HardcodeLoopsDone = 0; _l2HardcodeAllDone = false; _l2NextLoopAt = 10;
   segCtx.loopState = null;
+  if (LOOP_DEBUG) {
+    ambLight.intensity = 5;
+    renderer.toneMappingExposure = 3;
+    scene.fog = null;
+    _loopDebugLog = [];
+  }
 
   // Generate initial path with hills + curves
   for (let i = 0; i < AHEA + KEEP + 30; i++) genPtL2();
@@ -3328,6 +3403,18 @@ function frameL2() {
     cam.rotation.x = walker.pitch;
     cam.rotation.z = 0;
   } else if (_inLoop) {
+    if (LOOP_DEBUG && LOOP_DEBUG_SIDECAM) {
+      // Side-view: camera 120 m to the lateral side of the loop centre
+      const latX =  Math.cos(_loopEntryAngle);
+      const latZ =  Math.sin(_loopEntryAngle);
+      const carPos = player.group.position;
+      cam.position.set(
+        _loopEntryPos.x + latX * 120,
+        _loopEntryY + _LOOP_R * 1.5,
+        _loopEntryPos.z + latZ * 120
+      );
+      cam.lookAt(carPos.x, carPos.y, carPos.z);
+    } else {
     // Wide-angle loop camera: pull back and track the car around the full circle
     const carPos  = player.group.position;
     const camBack = 24;
@@ -3337,6 +3424,7 @@ function frameL2() {
     const cz = carPos.z + Math.cos(_loopEntryAngle) * camBack;
     cam.position.set(cx, cy, cz);
     cam.lookAt(carPos.x, carPos.y + 1, carPos.z);
+    }
   } else {
     const CDIST = 7;
     const cx = player.x - Math.sin(player.angle) * CDIST;
