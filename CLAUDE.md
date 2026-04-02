@@ -3,7 +3,11 @@
 ## Git
 - **Commit every change immediately after making it** — no exceptions
 - Remote: git@github.com:PixelPotts/UtterlyExtremeRacing.git
-- Push to `origin main` after committing unless told otherwise
+- Push to both branches after every commit:
+  ```
+  git push origin master && git push origin master:gh-pages
+  ```
+- `master` = source, `gh-pages` = live site at https://pixelpotts.github.io/UtterlyExtremeRacing/
 
 ## Project
 - Single-file browser game: `index.html` + `assets/` modules
