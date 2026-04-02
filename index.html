@@ -2974,7 +2974,7 @@ function teardownL1() {
 let _l2SplitActive = false, _l2SplitStart = 0, _l2SplitLen = 0, _l2SplitGapSegs = 0;
 // Loop-de-loop state (reset in startLevel2)
 const _LOOP_R          = 30;
-const _LOOP_N          = Math.round(2 * Math.PI * _LOOP_R / SLEN); // ~14 segs
+const _LOOP_N          = Math.round(2 * Math.PI * _LOOP_R / SLEN / 4) * 4; // round to mult of 4 → 16
 const _LOOP_ENTRY_SEGS = 10;
 const _LOOP_EXIT_SEGS  = 10;
 let _l2LoopArmed = false, _l2LoopStep = 0, _l2LoopDone = false;
@@ -3051,7 +3051,7 @@ function genPtL2() {
       path.push({ pos: pPos.clone(), angle: _loopEntryAngle });
       zoneTypes.push('loop');
       if (step === _LOOP_ENTRY_SEGS + _LOOP_N - 1) {
-        _loopSegEnd = path.length - 2;  // segment index of last loop body seg
+        _loopSegEnd = path.length - 1;  // segment index of last loop body seg
       }
     } else {
       // Straight flat exit

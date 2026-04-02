@@ -1,0 +1,47 @@
+{
+  "def": {
+    "w": 33,
+    "h": 48,
+    "d": 20,
+    "mat": 3,
+    "easement": 0,
+    "spaceBefore": 0,
+    "spaceAfter": 0,
+    "doorType": "double",
+    "doorOpens": false,
+    "enterable": true
+  },
+  "world": {
+    "x": -469.521652085364,
+    "z": -3642.2585742241004,
+    "ry": 0.08789940617910054,
+    "groundY": 4.235882228332552,
+    "side": -1
+  },
+  "interior": {
+    "nFloors": 8,
+    "floorH": 6,
+    "stairXStart": 0,
+    "stairXEnd": -16.35,
+    "stairZL": -0.7,
+    "stairZR": 0.7,
+    "staircases": 7
+  },
+  "walkerEntry": {
+    "wx": -453.58342274326634,
+    "wz": -3643.663154388668,
+    "wy": 4.235882228332552,
+    "lx": 15.999999999999973,
+    "lz": 2.2870594307278225e-14,
+    "localWalkerY": -24
+  },
+  "groupChildren": [
+    "Mesh",
+    "Group",
+    "Mesh",
+    "Mesh",
+    "Mesh",
+    "Mesh",
+    "Group"
+  ]
+}
