@@ -3007,7 +3007,7 @@ function startCountdown() {
 }
 
 // ── Start game (called after loading screen TAP) ────────
-function startGame() {
+async function startGame() {
   document.documentElement.requestFullscreen?.().catch(() => {});
 
   const ldr = document.getElementById('loader');
@@ -3016,11 +3016,21 @@ function startGame() {
   bgm.play().then(() => { if (!raceStarted) bgm.pause(); }).catch(() => {});
   initAudio().catch(() => {});
 
-  // Pre-compile shaders; keep the loader visible as the progress screen.
-  // Update status text only if it takes longer than 500 ms.
-  const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
+  // Phase 1: pre-bake all remaining decorations + pickups behind the loader.
+  // Yields every 15 segments via rAF so the loader canvas animation stays alive.
+  if (sta) sta.textContent = 'GENERATING TRACK...';
+  while (decoFrontier < path.length - 1) {
+    const end = Math.min(decoFrontier + 15, path.length - 1);
+    while (decoFrontier < end) addDecorations(decoFrontier++);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  while (pickupFrontier < path.length - 1) {
+    pickupManager.spawnForSeg(pickupFrontier++, false);
+  }
+
+  // Phase 2: compile all shaders (full scene geometry now present).
+  if (sta) sta.textContent = 'COMPILING SHADERS...';
   renderer.compileAsync(scene, cam).then(() => {
-    clearTimeout(_showCompile);
     if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
     frame();
     // Load mission, show intro story, then start countdown
@@ -3326,8 +3336,11 @@ function frame() {
         genPt();
         buildSeg(path.length - 2);
       }
-      while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
-        addDecorations(decoFrontier++);
+      { const _dt0 = performance.now();
+        while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
+          addDecorations(decoFrontier++);
+          if (performance.now() - _dt0 > 1.5) break;
+        }
       }
       while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
         pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
@@ -4000,7 +4013,7 @@ function genPtL2() {
   zoneTypes.push(_zType);
 }
 
-function startLevel2() {
+async function startLevel2() {
   currentLevel = 2;
   _segTypes = SEGMENT_TYPES_L2;
 
@@ -4107,44 +4120,50 @@ function startLevel2() {
 
   initAudio().catch(() => {});
 
-  // Show Level 2 loading screen — preload killbot GLB + compile shaders before starting
+  // Show Level 2 loading screen
   const _l2Screen = document.getElementById('level2-screen');
   const _l2Fill   = document.getElementById('level2-bar-fill');
   _l2Screen.style.opacity = '1';
   _l2Screen.style.display = 'flex';
+  _l2Fill.style.transition = 'none';
+  _l2Fill.style.width = '0%';
 
-  // Animate bar from 0 to ~60% while waiting (fallback if no onProgress)
-  _l2Fill.style.transition = 'width 1.8s linear';
-  requestAnimationFrame(() => { _l2Fill.style.width = '60%'; });
+  // Phase 1: pre-bake remaining decorations + pickups (0→55%)
+  const _l2BakeTotal = Math.max(1, (path.length - 1) - decoFrontier);
+  const _l2BakeStart = decoFrontier;
+  while (decoFrontier < path.length - 1) {
+    const end = Math.min(decoFrontier + 15, path.length - 1);
+    while (decoFrontier < end) addDecorations(decoFrontier++);
+    _l2Fill.style.width = Math.round(((decoFrontier - _l2BakeStart) / _l2BakeTotal) * 55) + '%';
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  while (pickupFrontier < path.length - 1) pickupManager.spawnForSeg(pickupFrontier++, false);
+  _l2Fill.style.width = '55%';
 
-  preloadKillBot1(e => {
-    if (e.total) {
-      _l2Fill.style.transition = 'width 0.2s linear';
-      _l2Fill.style.width = (e.loaded / e.total * 75) + '%';
-    }
-  }).then(gltf => {
-    // Add an invisible clone so compileAsync bakes killbot shaders — prevents mid-game freeze
-    const _tmpKb = gltf.scene.clone(true);
-    _tmpKb.visible = false;
-    scene.add(_tmpKb);
-    _l2Fill.style.transition = 'width 0.15s linear';
-    _l2Fill.style.width = '80%';
-    return renderer.compileAsync(scene, cam).then(() => { scene.remove(_tmpKb); });
-  }).then(() => {
-    _l2Fill.style.transition = 'width 0.15s linear';
-    _l2Fill.style.width = '100%';
-    setTimeout(() => {
-      _l2Screen.style.opacity = '0';
-      setTimeout(() => {
-        _l2Screen.style.display = 'none';
-        _l2Screen.style.opacity = '1';
-        _l2Fill.style.transition = 'none';
-        _l2Fill.style.width = '0%';
-      }, 520);
-    }, 180);
-    raceStarted = true; speedMul = 1;
-    frameL2();
+  // Phase 2: preload KillBot GLB (55→75%)
+  const _l2Gltf = await preloadKillBot1(e => {
+    if (e.total) _l2Fill.style.width = (55 + e.loaded / e.total * 20) + '%';
   });
+  const _tmpKb = _l2Gltf.scene.clone(true);
+  _tmpKb.visible = false;
+  scene.add(_tmpKb);
+  _l2Fill.style.width = '75%';
+
+  // Phase 3: compile all shaders (75→100%)
+  await renderer.compileAsync(scene, cam);
+  scene.remove(_tmpKb);
+  _l2Fill.style.width = '100%';
+  setTimeout(() => {
+    _l2Screen.style.opacity = '0';
+    setTimeout(() => {
+      _l2Screen.style.display = 'none';
+      _l2Screen.style.opacity = '1';
+      _l2Fill.style.transition = 'none';
+      _l2Fill.style.width = '0%';
+    }, 520);
+  }, 180);
+  raceStarted = true; speedMul = 1;
+  frameL2();
 }
 
 function frameL2() {
@@ -4173,8 +4192,11 @@ function frameL2() {
       genPtL2();
       buildSeg(path.length - 2);
     }
-    while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
-      addDecorations(decoFrontier++);
+    { const _dt0 = performance.now();
+      while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
+        addDecorations(decoFrontier++);
+        if (performance.now() - _dt0 > 1.5) break;
+      }
     }
     while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
       pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
