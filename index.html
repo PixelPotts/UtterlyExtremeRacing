@@ -3765,7 +3765,7 @@ function frame() {
     if (gdx*gdx + gdz*gdz < 3.0*3.0) {
       gunPickedUp = true;
       if (gunGlow)  { scene.remove(gunGlow);  gunGlow.geometry.dispose();  gunGlow.material.dispose();  gunGlow  = null; }
-      if (gunLight) { scene.remove(gunLight); gunLight = null; }
+      if (gunLight) { gunLight.position.set(0, -500, 0); gunLight.intensity = 0; gunLight = null; }
       gunMesh.traverse(c => { if (c.isMesh) c.material.emissiveIntensity = 0.06; });
       gunMesh.rotation.set(0, 0, 0);
       gunMesh.scale.setScalar(0.85);
