@@ -94,7 +94,8 @@ export class BuildingsSegment extends RaceSegment {
   get hasObstacles()   { return true;           }
   get hasPedestrians() { return true;           }
 
-  buildMeshes(si, { path, RW, SLEN, M, quad, spawnLightPost, spawnBuilding }) {
+  buildMeshes(si, ctx) {
+    const { path, RW, SLEN, M, quad, spawnLightPost, spawnBuilding } = ctx;
     const { pos, angle } = path[si];
     const px = Math.cos(angle), pz = Math.sin(angle);
     const fx = Math.sin(angle), fz = -Math.cos(angle);
