@@ -2409,16 +2409,8 @@ for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
 // ── Pickup manager ─────────────────────────────────────
-pickupManager = new PickupManager(scene, path, zoneTypes);
-pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
-pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
-pickupManager.on('ammo',    () => {
-  if (activeWeapon) {
-    activeWeapon.ammo = Math.min(activeWeapon.maxAmmo, activeWeapon.ammo + 15);
-    gunEmptyTimer = -1; _dryFirePlayed = false;
-  }
-});
-for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+// [DEBUG CUT C] pickups disabled — testing if pickup geometry/materials cause shader recompilation
+pickupManager = { on(){}, spawnForSeg(){}, dropSeg(){}, reset(){} };
 pickupFrontier = DECO_AHEAD + 6;
 
 // ── Load gun pickup ────────────────────────────────────
