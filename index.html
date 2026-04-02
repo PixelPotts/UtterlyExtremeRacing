@@ -294,7 +294,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PlayerVehicle, AiVehicle }          from './assets/vehicle.js';
 import { Weapon }                            from './assets/weapons.js';
-import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle } from './assets/obstacles.js';
+import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, WARMUP_MATS } from './assets/obstacles.js';
 import { BoxTruck }  from './assets/boxtruck.js';
 import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
@@ -1098,6 +1098,27 @@ const tunnelLightPool = Array.from({length: TLPOOL}, () => {
 const tunnelFill = new THREE.PointLight(0xDDEEFF, 18, 28);
 tunnelFill.position.set(0, -500, 0);
 scene.add(tunnelFill);
+
+// ── Shader warmup — one invisible mesh per material keeps every shader
+//    program resident in Three.js's cache forever, preventing mid-game
+//    recompilation spikes when materials cycle in/out of the active window.
+{
+  const _wGeo = new THREE.SphereGeometry(0.001, 3, 2);
+  const _wMats = [
+    ...Object.values(M).filter(Boolean),
+    ...BLDG_MATS,
+    TRIM_MAT,
+    ...WARMUP_MATS,
+  ];
+  for (const mat of _wMats) {
+    const m = new THREE.Mesh(_wGeo, mat);
+    m.position.set(0, -200, 0);
+    m.frustumCulled = false;
+    m.castShadow    = false;
+    m.receiveShadow = false;
+    scene.add(m);
+  }
+}
 
 // ── Loading screen progress ─────────────────────────────
 const _TOTAL = 12;  // 9 textures + 3 audio

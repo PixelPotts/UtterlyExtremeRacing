@@ -420,3 +420,6 @@ export class NeonCubeObstacle extends Obstacle {
     this.meshes = [];
   }
 }
+
+// Materials that need shader warmup — kept resident by an invisible mesh in the main scene.
+export const WARMUP_MATS = [_mhMat, _mhRingMat, _mhHoleMat, _neonBodyMat];
