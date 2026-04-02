@@ -54,22 +54,25 @@ canvas { display: block; cursor: none; }
 #dialog-box {
   display: none;
   position: fixed;
-  bottom: 0; left: 0; right: 0;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 680px;
+  height: 220px;
   z-index: 7500;
-  background: rgba(0,0,0,0.88);
-  border-top: 2px solid rgba(0,255,200,0.35);
-  padding: 22px 36px 26px;
+  background: rgba(0,0,0,0.92);
+  border: 2px solid rgba(0,255,200,0.4);
+  border-radius: 6px;
+  padding: 20px 28px;
   font-family: 'Courier New', monospace;
-  align-items: stretch;
-  gap: 28px;
-  box-shadow: 0 -4px 40px rgba(0,0,0,0.9);
-  min-height: 160px;
+  align-items: center;
+  gap: 24px;
+  box-shadow: 0 0 60px rgba(0,0,0,0.95), 0 0 20px rgba(0,255,200,0.08);
 }
 #dialog-box.dlg-visible { display: flex; }
 #dlg-portrait {
-  width: 160px;
-  min-width: 160px;
-  height: 160px;
+  width: 120px;
+  min-width: 120px;
+  height: 120px;
   border: 2px solid rgba(0,255,200,0.4);
   border-radius: 4px;
   overflow: hidden;
@@ -83,11 +86,11 @@ canvas { display: block; cursor: none; }
   content: '';
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.18) 3px, rgba(0,0,0,0.18) 4px);
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.15) 3px, rgba(0,0,0,0.15) 4px);
   pointer-events: none;
 }
 .dlg-initial {
-  font-size: 80px;
+  font-size: 64px;
   font-weight: bold;
   color: rgba(255,255,255,0.18);
   line-height: 1;
@@ -98,26 +101,25 @@ canvas { display: block; cursor: none; }
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
 }
 #dlg-speaker {
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 6px;
   color: rgba(0,255,200,0.8);
   text-transform: uppercase;
 }
 #dlg-text {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1.6;
   color: rgba(255,255,255,0.92);
-  letter-spacing: 0.5px;
-  min-height: 80px;
+  letter-spacing: 0.3px;
 }
 #dlg-prompt {
-  font-size: 12px;
-  color: rgba(0,255,200,0.6);
+  font-size: 11px;
+  color: rgba(0,255,200,0.5);
   text-align: right;
   opacity: 0;
   transition: opacity 0.3s;
@@ -418,9 +420,9 @@ const M = {
   dirtGround:    new THREE.MeshStandardMaterial({ color: 0x6B5038, roughness: 1.0,  metalness: 0 }),
   // ── Level 2 materials ───────────────────────────────
   // metalness: 0 so dielectric specular responds to SpotLights (no env-map needed)
-  roadBlack:     new THREE.MeshStandardMaterial({ color: 0x060606, roughness: 0.14, metalness: 0 }),
+  roadBlack:     new THREE.MeshStandardMaterial({ color: 0x060606, roughness: 0.14, metalness: 0, side: THREE.DoubleSide }),
   splitGap:      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
-  kerbNeonGreen:  new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
+  kerbNeonGreen:  new THREE.MeshStandardMaterial({ color: 0x00ff88, emissive: 0x00ff88, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0, side: THREE.DoubleSide }),
   kerbNeonBlue:   new THREE.MeshStandardMaterial({ color: 0x0088ff, emissive: 0x0088ff, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   kerbNeonOrange: new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff6600, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   blackWater:    new THREE.MeshStandardMaterial({ color: 0x040d0a, roughness: 0.03, metalness: 0, emissive: 0x020b08, emissiveIntensity: 0.7, side: THREE.DoubleSide }),
