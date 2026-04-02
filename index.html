@@ -693,13 +693,29 @@ const _etherGroundUniforms = {
 };
 
 const ETHER_GROUND_VS = /* glsl */`
+uniform float uTime;
+uniform float uEtherT;
 varying vec2 vUv;
 varying vec3 vWorldPos;
 void main() {
   vUv = uv;
-  vec4 wp   = modelMatrix * vec4(position, 1.0);
+  vec3 pos = position;
+
+  // Phase 2 only: waves ripple the mesh height
+  float t     = mod(uEtherT, 16.0);
+  float phase = floor(t / 4.0);
+  if (phase > 1.5 && phase < 2.5) {
+    float phFrac = fract(t / 4.0);
+    float amt = smoothstep(0.0, 0.15, phFrac) * smoothstep(1.0, 0.85, phFrac);
+    float u  = uv.x;
+    float w1 = (sin(u       * 6.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-u       * 2.8);
+    float w2 = (sin((1.0-u) * 6.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-(1.0-u) * 2.8);
+    pos.y += (w1 + w2) * amt * 7.0;
+  }
+
+  vec4 wp   = modelMatrix * vec4(pos, 1.0);
   vWorldPos = wp.xyz;
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  gl_Position = projectionMatrix * viewMatrix * wp;
 }`;
 
 const ETHER_GROUND_FS = /* glsl */`
@@ -747,8 +763,8 @@ void main() {
   } else if (phase < 2.5) {
     // ── Phase 2: Wave interference packets ───────────────────────────────────
     float u  = vUv.x;
-    float w1 = (sin(u       * 16.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-u       * 2.8);
-    float w2 = (sin((1.0-u) * 16.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-(1.0-u) * 2.8);
+    float w1 = (sin(u       * 6.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-u       * 2.8);
+    float w2 = (sin((1.0-u) * 6.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-(1.0-u) * 2.8);
     float interf = (w1 + w2) * (0.72 + 0.28 * sin(vWorldPos.z * 0.14 + uTime));
     col = mix(vec3(0.0, 0.50, 1.0), vec3(1.0, 0.12, 0.0),
               clamp((interf - 0.65) * 4.0, 0.0, 1.0)) * interf;
@@ -812,6 +828,153 @@ M.etherGround = new THREE.ShaderMaterial({
   uniforms:       _etherGroundUniforms,
   side:           THREE.DoubleSide,
 });
+
+// ── Evil emoji skybox ─────────────────────────────────────────────────────────
+// Giant sphere rendered from inside; nose at zenith; fades in when entering ether.
+const _etherSkyUniforms = {
+  uTime:     { value: 0 },
+  uStrength: { value: 0 },
+};
+
+const ETHER_SKY_VS = /* glsl */`
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const ETHER_SKY_FS = /* glsl */`
+uniform float uTime;
+uniform float uStrength;
+varying vec3  vDir;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+// Thick line SDF (returns 1 inside, 0 outside)
+float fatLine(vec2 p, vec2 a, vec2 b, float r) {
+  vec2 pa = p - a, ba = b - a;
+  float h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+  return step(length(pa - ba * h), r);
+}
+
+void main() {
+  vec3 nd = normalize(vDir);
+
+  // ── Background: deep purple void with stars ──────────────────────────────
+  vec3 sky = mix(vec3(0.015, 0.006, 0.05), vec3(0.04, 0.015, 0.12), max(nd.y, 0.0));
+  float st = h21(floor(nd.xz * 240.0 + floor(uTime * 0.25)));
+  sky += step(0.997, st) * vec3(0.5, 0.3, 1.0) * 0.65;
+
+  if (nd.y < 0.02) { gl_FragColor = vec4(sky, uStrength); return; }
+
+  // ── Face projection: perspective from zenith, nose at (0,0) ─────────────
+  float safeDY = max(nd.y, 0.04);
+  float fx = nd.x / safeDY;          // face left-right
+  float fy = nd.z / safeDY;          // fy>0 = toward +Z (chin), fy<0 = toward -Z (forehead/horns)
+
+  // Pixelate — 1/20 units per pixel (face spans ±1 = 40 pixels across)
+  float pixS = 1.0 / 20.0;
+  vec2  fp   = (floor(vec2(fx, fy) / pixS) + 0.5) * pixS;
+  float fr   = length(fp);
+
+  if (fr > 1.12) { gl_FragColor = vec4(sky, uStrength); return; }
+
+  // ── Face base color: angry golden-orange ────────────────────────────────
+  vec3 col = mix(vec3(1.00, 0.72, 0.02), vec3(0.92, 0.38, 0.00), fr * 0.85);
+
+  // Dark/light feature accumulators
+  float dark = 0.0;
+  float lite = 0.0;   // eye-slit red glow
+  float horn = 0.0;
+
+  // ── Horns: two sharp triangles at top of head (fy < -0.68) ──────────────
+  // Left horn: tip at (-0.46, -1.02), base centred at (-0.46, -0.70)
+  {
+    vec2 hp = fp - vec2(-0.46, -0.70);
+    float h = -hp.y;                                      // height above base
+    horn = max(horn, step(abs(hp.x), h * 0.50) * step(0.0, h) * step(h, 0.36));
+  }
+  {
+    vec2 hp = fp - vec2( 0.46, -0.70);
+    float h = -hp.y;
+    horn = max(horn, step(abs(hp.x), h * 0.50) * step(0.0, h) * step(h, 0.36));
+  }
+  // Horn color: blood-dark red
+  col = mix(col, vec3(0.55, 0.0, 0.0), horn);
+
+  // ── Angry brows (inner corners lower for angry V-shape) ──────────────────
+  // Left brow: outer high (-0.58, -0.42) → inner low (-0.20, -0.27)
+  dark = max(dark, fatLine(fp, vec2(-0.58,-0.42), vec2(-0.20,-0.27), 0.076));
+  // Right brow: inner low (0.20, -0.27) → outer high (0.58, -0.42)
+  dark = max(dark, fatLine(fp, vec2( 0.20,-0.27), vec2( 0.58,-0.42), 0.076));
+
+  // ── Eyes: large black ovals with red glowing slit pupils ─────────────────
+  float eyeL = step(length(vec2((fp.x + 0.33) / 0.19, (fp.y + 0.12) / 0.13)), 1.0);
+  float eyeR = step(length(vec2((fp.x - 0.33) / 0.19, (fp.y + 0.12) / 0.13)), 1.0);
+  dark = max(dark, max(eyeL, eyeR));
+  // Red slit: horizontal band across eye
+  float slitL = eyeL * step(abs(fp.y + 0.12), 0.036);
+  float slitR = eyeR * step(abs(fp.y + 0.12), 0.036);
+  lite = max(lite, max(slitL, slitR));
+
+  // ── Nose: two dark nostril ovals at center ───────────────────────────────
+  float nostL = step(length(vec2((fp.x + 0.12) / 0.09, fp.y / 0.07)), 1.0);
+  float nostR = step(length(vec2((fp.x - 0.12) / 0.09, fp.y / 0.07)), 1.0);
+  dark = max(dark, max(nostL, nostR));
+
+  // ── Angry cheek blush ────────────────────────────────────────────────────
+  float blushL = step(length(vec2((fp.x + 0.56) / 0.22, (fp.y + 0.10) / 0.14)), 1.0);
+  float blushR = step(length(vec2((fp.x - 0.56) / 0.22, (fp.y + 0.10) / 0.14)), 1.0);
+  col = mix(col, vec3(0.88, 0.18, 0.0), max(blushL, blushR) * 0.65);
+
+  // ── Mouth: wide gaping grin with pixel-art teeth ─────────────────────────
+  float inMouth = step(-0.50, fp.x) * step(fp.x, 0.50)
+                * step(0.28,  fp.y) * step(fp.y, 0.44);
+  // Upper/lower lips (dark)
+  float lips = max(step(0.41, fp.y), step(fp.y, 0.32));
+  // Tooth dividers (dark vertical lines every 0.2 units)
+  float tDiv = step(0.84, fract((fp.x + 0.50) / 1.00 * 5.0));
+  float mDark = inMouth * max(lips, tDiv);
+  float mTeet = inMouth * (1.0 - lips) * (1.0 - tDiv);
+  dark = max(dark, mDark);
+  col  = mix(col, vec3(0.96, 0.92, 0.84), mTeet); // creamy white teeth
+
+  // ── Face circle outline ───────────────────────────────────────────────────
+  dark = max(dark, smoothstep(1.04, 1.08, fr) * smoothstep(1.12, 1.08, fr));
+
+  // ── Apply features ───────────────────────────────────────────────────────
+  col = mix(col, vec3(0.04, 0.01, 0.0), dark);
+  // Red eye-slit glow (flickers)
+  float fl = 0.80 + 0.20 * sin(uTime * 8.3);
+  col = mix(col, vec3(1.0, 0.12, 0.0) * fl, lite);
+
+  // ── Blend into sky at face edge ───────────────────────────────────────────
+  float faceMask = smoothstep(1.12, 1.02, fr);
+  col = mix(sky, col, faceMask);
+
+  gl_FragColor = vec4(col, uStrength);
+}`;
+
+const _etherSkyMesh = (() => {
+  const geo  = new THREE.SphereGeometry(1800, 32, 20);
+  const mat  = new THREE.ShaderMaterial({
+    vertexShader:   ETHER_SKY_VS,
+    fragmentShader: ETHER_SKY_FS,
+    uniforms:       _etherSkyUniforms,
+    side:           THREE.BackSide,
+    depthTest:      false,
+    depthWrite:     false,
+    transparent:    true,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = -100;
+  return mesh;
+})();
+scene.add(_etherSkyMesh);
 
 // ── Animated black water — procedural DataTexture normal map, scrolled per frame ─
 // Two-frequency sine pattern baked into a 256×256 RGBA DataTexture.
@@ -3528,12 +3691,17 @@ function frame() {
     _snowUniforms.uTrackAnchor.value.set(_trackWX, _trackWZ);
   }
 
-  // ── Ether road + ground animation ────────────────────
+  // ── Ether road + ground + skybox animation ───────────
   _etherRoadUniforms.uTime.value    += dt;
   _etherGroundUniforms.uTime.value  += dt;
+  _etherSkyUniforms.uTime.value     += dt;
   _etherGroundUniforms.uPlayerZ.value = player.z;
 
+  // Skybox follows camera and fades in/out with ether zone
+  _etherSkyMesh.position.copy(cam.position);
   const _etherZone = zoneTypes[player.seg] === 'ether';
+  const _skyTgt = _etherZone ? 1.0 : 0.0;
+  _etherSkyUniforms.uStrength.value += (_skyTgt - _etherSkyUniforms.uStrength.value) * Math.min(dt * 1.8, 1);
   if (_etherZone) {
     const _egPrevT = _etherGroundUniforms.uEtherT.value;
     _etherGroundUniforms.uEtherT.value += dt;
@@ -3572,7 +3740,7 @@ function teardownL1() {
 
   // Wipe scene, re-add persistent objects
   scene.clear();
-  scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill);
+  scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh);
   streetLightPool.forEach(l => scene.add(l));
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
 
@@ -3603,6 +3771,8 @@ function teardownL1() {
   _etherRoadUniforms.uTime.value = 0;
   _etherGroundUniforms.uTime.value   = 0;
   _etherGroundUniforms.uEtherT.value = 0;
+  _etherSkyUniforms.uTime.value      = 0;
+  _etherSkyUniforms.uStrength.value  = 0;
   _stopEtherStatic();
   _resetTrackCanvas(0, 0);
   _lastMonsterSeg = -999;
