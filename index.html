@@ -456,6 +456,7 @@ const M = {
   snow:           null,  // assigned below after ShaderMaterial creation
   mountainTerrain: null,
   etherRoad:      null,
+  etherGround:    null,
 };
 
 // ── Snow road + mountain terrain shaders ────────────────────────────────────────
@@ -682,6 +683,134 @@ M.etherRoad = new THREE.ShaderMaterial({
   vertexShader:   ETHER_ROAD_VS,
   fragmentShader: ETHER_ROAD_FS,
   uniforms:       _etherRoadUniforms,
+});
+
+// ── Ether ground — rolling sin-wave terrain, 4-phase display shader ───────────
+const _etherGroundUniforms = {
+  uTime:    { value: 0 },
+  uEtherT:  { value: 0 },  // time accumulated only while inside ether zone
+  uPlayerZ: { value: 0 },
+};
+
+const ETHER_GROUND_VS = /* glsl */`
+varying vec2 vUv;
+varying vec3 vWorldPos;
+void main() {
+  vUv = uv;
+  vec4 wp   = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const ETHER_GROUND_FS = /* glsl */`
+uniform float uTime;
+uniform float uEtherT;
+uniform float uPlayerZ;
+varying vec2  vUv;
+varying vec3  vWorldPos;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+vec3 barColor(float i) {
+  if (i < 1.0) return vec3(1.0, 1.0, 1.0);
+  if (i < 2.0) return vec3(1.0, 1.0, 0.0);
+  if (i < 3.0) return vec3(0.0, 1.0, 1.0);
+  if (i < 4.0) return vec3(0.0, 1.0, 0.0);
+  if (i < 5.0) return vec3(1.0, 0.0, 1.0);
+  if (i < 6.0) return vec3(1.0, 0.0, 0.0);
+  return vec3(0.0, 0.0, 1.0);
+}
+
+void main() {
+  float t      = mod(uEtherT, 16.0);
+  float phase  = floor(t / 4.0);   // 0..3
+  float phFrac = fract(t / 4.0);   // 0..1 within phase
+  vec3  col    = vec3(0.0);
+
+  if (phase < 0.5) {
+    // ── Phase 0: TV test bars with large Z-offset diagonal stagger ──────────
+    float zOff = floor(vWorldPos.z * 0.055) * 1.8;
+    float barI = mod(vUv.x * 7.0 + zOff, 7.0);
+    col = barColor(floor(barI));
+    col *= 0.86 + 0.14 * sin(vWorldPos.z * 2.8 + uTime * 5.0);
+
+  } else if (phase < 1.5) {
+    // ── Phase 1: Gray static ─────────────────────────────────────────────────
+    float ft    = floor(uTime * 26.0);
+    float noise = h21(floor(vUv * vec2(96.0, 72.0)) + ft * vec2(0.17, 0.31));
+    col = vec3(noise * 0.72 + 0.09);
+
+  } else if (phase < 2.5) {
+    // ── Phase 2: Wave interference packets ───────────────────────────────────
+    float u  = vUv.x;
+    float w1 = (sin(u       * 16.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-u       * 2.8);
+    float w2 = (sin((1.0-u) * 16.0 - uTime * 7.0) * 0.5 + 0.5) * exp(-(1.0-u) * 2.8);
+    float interf = (w1 + w2) * (0.72 + 0.28 * sin(vWorldPos.z * 0.14 + uTime));
+    col = mix(vec3(0.0, 0.50, 1.0), vec3(1.0, 0.12, 0.0),
+              clamp((interf - 0.65) * 4.0, 0.0, 1.0)) * interf;
+
+  } else {
+    // ── Phase 3: Skull and crossbones tracking player ─────────────────────────
+    float skU = (vUv.x - 0.5) * 2.2;
+    float skV = (vWorldPos.z - (uPlayerZ + 22.0)) / 30.0;
+
+    // Cranium (oval, upper half)
+    float cran = smoothstep(0.03, 0.0,
+      length(vec2(skU * 0.84, (skV - 0.26) * 0.90)) - 0.60);
+    // Eye sockets (subtract)
+    float eyeL = smoothstep(0.025, 0.0, length(vec2(skU + 0.26, skV - 0.32)) - 0.155);
+    float eyeR = smoothstep(0.025, 0.0, length(vec2(skU - 0.26, skV - 0.32)) - 0.155);
+    // Nose cavity
+    float nose = smoothstep(0.02, 0.0, length(vec2(skU, (skV - 0.10) * 0.72)) - 0.092);
+    // Jaw (lower oval)
+    float jaw  = smoothstep(0.03, 0.0,
+      length(vec2(skU * 0.62, (skV + 0.30) * 1.18)) - 0.36);
+    // Teeth gaps (3 arches subtracted from bottom of skull)
+    float tg = max(max(
+      smoothstep(0.02, 0.0, length(vec2(skU + 0.23, skV + 0.26)) - 0.085),
+      smoothstep(0.02, 0.0, length(vec2(skU,         skV + 0.26)) - 0.085)),
+      smoothstep(0.02, 0.0, length(vec2(skU - 0.23,  skV + 0.26)) - 0.085));
+    float skull = max(
+      cran * (1.0 - eyeL) * (1.0 - eyeR) * (1.0 - nose) * (1.0 - tg),
+      jaw  * (1.0 - tg));
+
+    // Crossbones — X centered 0.98 below skull
+    vec2  bp = vec2(skU, skV + 0.98);
+    float b1 = smoothstep(0.07, 0.03, abs(bp.y - bp.x * 0.87)) * step(abs(bp.x), 0.63);
+    float b2 = smoothstep(0.07, 0.03, abs(bp.y + bp.x * 0.87)) * step(abs(bp.x), 0.63);
+    float kn = 0.0;
+    kn = max(kn, smoothstep(0.04, 0.0, length(bp - vec2(-0.63,  0.55)) - 0.115));
+    kn = max(kn, smoothstep(0.04, 0.0, length(bp - vec2( 0.63,  0.55)) - 0.115));
+    kn = max(kn, smoothstep(0.04, 0.0, length(bp - vec2(-0.63, -0.55)) - 0.115));
+    kn = max(kn, smoothstep(0.04, 0.0, length(bp - vec2( 0.63, -0.55)) - 0.115));
+    float mask = max(skull, max(b1, max(b2, kn)));
+
+    // Background: dark void with subtle grid
+    float gx  = step(0.91, fract(vWorldPos.x * 0.14));
+    float gz  = step(0.91, fract(vWorldPos.z * 0.14));
+    vec3  bg  = vec3(0.010, 0.004, 0.022) + min(gx + gz, 1.0) * vec3(0.035, 0.010, 0.090);
+    // Skull: ghostly white with flicker
+    float fl  = 0.88 + 0.12 * sin(uTime * 10.7);
+    float wf  = smoothstep(1.5, 0.85, abs(skV)) * smoothstep(1.4, 0.75, abs(skU * 0.78));
+    col = mix(bg, vec3(0.80, 0.92, 1.00) * fl, mask * wf);
+    col = max(col, bg);
+  }
+
+  // Smooth phase crossfade (6% overlap at each end)
+  col *= smoothstep(0.0, 0.06, phFrac) * smoothstep(1.0, 0.94, phFrac);
+  col += vec3(0.006, 0.003, 0.015);
+  gl_FragColor = vec4(clamp(col, 0.0, 1.8), 1.0);
+}`;
+
+M.etherGround = new THREE.ShaderMaterial({
+  vertexShader:   ETHER_GROUND_VS,
+  fragmentShader: ETHER_GROUND_FS,
+  uniforms:       _etherGroundUniforms,
+  side:           THREE.DoubleSide,
 });
 
 // ── Animated black water — procedural DataTexture normal map, scrolled per frame ─
@@ -1574,6 +1703,67 @@ function spawnMountainTerrain(si) {
   return meshes;
 }
 
+// ── Ether zone rolling terrain ────────────────────────────────────────────────
+// Gentle sin-wave ground on both sides of the road — acts as a display surface
+// for the 4-phase ETHER_GROUND_FS shader.
+function spawnEtherGround(si) {
+  if (!path[si + 1]) return [];
+  const { pos: p0, angle: a0 } = path[si];
+  const { pos: p1, angle: a1 } = path[si + 1];
+  const hw    = segWidth(si) / 2;
+  const edge  = hw + 1.1;
+  const TW    = 70;
+  const NX    = 16;
+  const NZ    = 3;
+  const PI2   = Math.PI * 2;
+  const px0   = Math.cos(a0), pz0 = Math.sin(a0);
+  const px1   = Math.cos(a1), pz1 = Math.sin(a1);
+  const roadH0 = p0.y + 0.42;
+  const roadH1 = p1.y + 0.42;
+  const meshes = [];
+
+  for (const side of [-1, 1]) {
+    const verts = [], uvs = [], idx = [];
+    for (let j = 0; j <= NZ; j++) {
+      const tf  = j / NZ;
+      const bx  = p0.x + (p1.x - p0.x) * tf;
+      const bz  = p0.z + (p1.z - p0.z) * tf;
+      const bH  = roadH0 + (roadH1 - roadH0) * tf;
+      for (let i = 0; i <= NX; i++) {
+        const lf  = i / NX;
+        const lat = edge + lf * TW;
+        const pxt = px0 + (px1 - px0) * tf;
+        const pzt = pz0 + (pz1 - pz0) * tf;
+        const wx  = bx + pxt * side * lat;
+        const wz  = bz + pzt * side * lat;
+        const fade = Math.min(1, lf * 5);
+        const dh  =
+          3.8 * Math.sin(wx * PI2 / 42 + 0.80) * Math.cos(wz * PI2 / 48 + 1.50) +
+          1.6 * Math.sin(wx * PI2 / 20 + 2.30) * Math.cos(wz * PI2 / 24 + 3.10);
+        verts.push(wx, bH + fade * dh, wz);
+        uvs.push(lf, tf);   // UV.x = 0..1 lateral (important for shader)
+      }
+    }
+    for (let j = 0; j < NZ; j++) {
+      for (let i = 0; i < NX; i++) {
+        const a = j * (NX + 1) + i, b = a + 1;
+        const c = (j + 1) * (NX + 1) + i, d = c + 1;
+        if (side > 0) idx.push(a, b, c, b, d, c);
+        else          idx.push(a, c, b, c, d, b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs,   2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, M.etherGround);
+    scene.add(mesh);
+    meshes.push(mesh);
+  }
+  return meshes;
+}
+
 // ── Mountain backdrop peaks ──────────────────────────────────────────────────
 // Spawns jagged conical peaks deep to each side of the road.
 const _mtnPeakMat = new THREE.MeshPhongMaterial({
@@ -1846,7 +2036,7 @@ function spawnIntersectionLights(si, pos, angle) {
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround };
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
@@ -2263,6 +2453,46 @@ function spawnHitText(pts = 10) {
 let actx = null;
 const aBufs = {};
 let thunderTimer = 8 + Math.random() * 10;  // seconds to first strike
+
+// ── Ether zone audio (synthesised — no files) ──────────────────────────────
+let _etherStaticSrc  = null;
+let _etherStaticGain = null;
+
+function _startEtherStatic() {
+  if (!actx || _etherStaticSrc) return;
+  const sr  = actx.sampleRate;
+  const buf = actx.createBuffer(1, sr * 2, sr);
+  const d   = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  _etherStaticSrc  = actx.createBufferSource();
+  _etherStaticGain = actx.createGain();
+  _etherStaticSrc.buffer = buf;
+  _etherStaticSrc.loop   = true;
+  _etherStaticGain.gain.value = 0.28;
+  _etherStaticSrc.connect(_etherStaticGain).connect(actx.destination);
+  _etherStaticSrc.start();
+}
+
+function _stopEtherStatic() {
+  if (!_etherStaticSrc) return;
+  if (actx) _etherStaticGain.gain.setTargetAtTime(0, actx.currentTime, 0.08);
+  const s = _etherStaticSrc;
+  setTimeout(() => { try { s.stop(); } catch(e) {} }, 300);
+  _etherStaticSrc = null; _etherStaticGain = null;
+}
+
+function _playZzap() {
+  if (!actx) return;
+  const osc  = actx.createOscillator();
+  const gain = actx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(900, actx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(55, actx.currentTime + 0.45);
+  gain.gain.setValueAtTime(0.55, actx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + 0.55);
+  osc.connect(gain).connect(actx.destination);
+  osc.start(); osc.stop(actx.currentTime + 0.60);
+}
 
 async function initAudio() {
   if (actx) return;
@@ -3298,8 +3528,24 @@ function frame() {
     _snowUniforms.uTrackAnchor.value.set(_trackWX, _trackWZ);
   }
 
-  // ── Ether road animation ──────────────────────────────
-  _etherRoadUniforms.uTime.value += dt;
+  // ── Ether road + ground animation ────────────────────
+  _etherRoadUniforms.uTime.value    += dt;
+  _etherGroundUniforms.uTime.value  += dt;
+  _etherGroundUniforms.uPlayerZ.value = player.z;
+
+  const _etherZone = zoneTypes[player.seg] === 'ether';
+  if (_etherZone) {
+    const _egPrevT = _etherGroundUniforms.uEtherT.value;
+    _etherGroundUniforms.uEtherT.value += dt;
+    const _egCurrT = _etherGroundUniforms.uEtherT.value;
+    const _egPrevPh = Math.floor((_egPrevT % 16) / 4);
+    const _egCurrPh = Math.floor((_egCurrT % 16) / 4);
+    if (_egCurrPh !== _egPrevPh) {
+      if (_egCurrPh === 1) { _startEtherStatic(); bgm.pause(); }
+      if (_egPrevPh === 1) { _stopEtherStatic(); bgm.play().catch(() => {}); }
+      if (_egPrevPh === 2 && _egCurrPh === 3) { _playZzap(); }
+    }
+  }
 
   etherComposer.render(scene, cam, player.x, player.z, dt);
 }
@@ -3355,6 +3601,9 @@ function teardownL1() {
   _waterUniforms.uTime.value = 0;
   _snowUniforms.uTime.value    = 0;
   _etherRoadUniforms.uTime.value = 0;
+  _etherGroundUniforms.uTime.value   = 0;
+  _etherGroundUniforms.uEtherT.value = 0;
+  _stopEtherStatic();
   _resetTrackCanvas(0, 0);
   _lastMonsterSeg = -999;
   _etherPortalSeq = 0;

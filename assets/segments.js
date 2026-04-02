@@ -214,7 +214,7 @@ export class DirtSegment extends RaceSegment {
 export class EtherSegment extends RaceSegment {
   get roadMat() { return 'etherRoad'; }
   get kerb()    { return KERB_NONE;   }
-  // No buildMeshes — portal planes are spawned by addDecorations at zone edges
+  buildGround(si, { spawnEtherGround }) { return spawnEtherGround(si); }
 }
 
 // ── Mountains (snowy alpine) ───────────────────────────────────────────────────
