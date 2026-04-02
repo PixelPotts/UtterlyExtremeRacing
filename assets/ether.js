@@ -197,5 +197,21 @@ export class EtherComposer {
     this._uniforms.uResolution.value.set(cssW, cssH);
   }
 
+  // Pre-warm both the portal plane shader (in main scene) and the screen-space
+  // composite shader (in _screenScene) so neither compiles mid-game.
+  // Returns a Promise that resolves after both compileAsync calls finish.
+  warmupCompile(renderer, scene, cam) {
+    const dummy = this.makePortalMesh(0, -5000, 0, -5000);
+    scene.add(dummy);
+    return Promise.all([
+      renderer.compileAsync(scene, cam),
+      renderer.compileAsync(this._screenScene, this._screenCam),
+    ]).then(() => {
+      scene.remove(dummy);
+      dummy.geometry.dispose();
+      dummy.material.dispose();
+    });
+  }
+
   dispose() { this._rt.dispose(); }
 }

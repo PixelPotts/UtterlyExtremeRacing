@@ -3045,8 +3045,14 @@ function startGame() {
 
   // Pre-compile shaders; keep the loader visible as the progress screen.
   // Update status text only if it takes longer than 500 ms.
+  // Dummy instances bake mid-game shader variants (BoxTruck receiveShadow,
+  // ether portal plane, ether screen-space composite) before first frame.
+  const _dummyBt = new BoxTruck(scene, path, 0, SLEN);
+  _dummyBt.group.visible = false;
+
   const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
-  renderer.compileAsync(scene, cam).then(() => {
+  etherComposer.warmupCompile(renderer, scene, cam).then(() => {
+    _dummyBt.dispose();
     clearTimeout(_showCompile);
     if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
     frame();
