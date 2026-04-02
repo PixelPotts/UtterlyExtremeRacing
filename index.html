@@ -450,7 +450,184 @@ const M = {
   kerbNeonBlue:   new THREE.MeshStandardMaterial({ color: 0x0088ff, emissive: 0x0088ff, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   kerbNeonOrange: new THREE.MeshStandardMaterial({ color: 0xff6600, emissive: 0xff6600, emissiveIntensity: 2.8, roughness: 0.35, metalness: 0 }),
   blackWater:    new THREE.MeshStandardMaterial({ color: 0x040d0a, roughness: 0.03, metalness: 0, emissive: 0x020b08, emissiveIntensity: 0.7, side: THREE.DoubleSide }),
+  snow:          null,  // assigned below after ShaderMaterial creation
+  mountainTerrain: null,
 };
+
+// ── Snow road + mountain terrain shaders ────────────────────────────────────────
+// Tire-track canvas: 256×256 representing a 200×200 m world window.
+// Updated each frame — gray smears appear where tyres have passed.
+const _TRACK_SIZE  = 256;
+const _TRACK_WORLD = 200;
+const _trackCanvas = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = _TRACK_SIZE;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, _TRACK_SIZE, _TRACK_SIZE);
+  return c;
+})();
+const _trackCtx = _trackCanvas.getContext('2d');
+const _trackTex  = new THREE.CanvasTexture(_trackCanvas);
+let _trackWX = -9999, _trackWZ = -9999;  // world-space anchor of canvas bottom-left
+
+function _resetTrackCanvas(cx, cz) {
+  _trackWX = cx - _TRACK_WORLD / 2;
+  _trackWZ = cz - _TRACK_WORLD / 2;
+  _trackCtx.fillStyle = '#fff';
+  _trackCtx.fillRect(0, 0, _TRACK_SIZE, _TRACK_SIZE);
+  _trackTex.needsUpdate = true;
+}
+
+function updateTireTracks(px, pz, angle, speed) {
+  if (Math.abs(speed) < 0.5) return;
+  // Re-centre window when player nears edge (>35% from anchor edge)
+  const margin = _TRACK_WORLD * 0.35;
+  if (px < _trackWX + margin || px > _trackWX + _TRACK_WORLD - margin ||
+      pz < _trackWZ + margin || pz > _trackWZ + _TRACK_WORLD - margin) {
+    _resetTrackCanvas(px, pz);
+  }
+  // Slowly fade tracks back toward white (snow fills in)
+  _trackCtx.globalCompositeOperation = 'source-over';
+  _trackCtx.globalAlpha = 0.006;
+  _trackCtx.fillStyle = '#fff';
+  _trackCtx.fillRect(0, 0, _TRACK_SIZE, _TRACK_SIZE);
+  _trackCtx.globalAlpha = 1.0;
+  // Paint two tyre grooves perpendicular to travel direction
+  const perpX = -Math.sin(angle);
+  const perpZ =  Math.cos(angle);
+  const HALF  = 0.68; // m, half-track-width
+  _trackCtx.fillStyle = 'rgba(115, 128, 148, 0.88)';
+  for (const side of [-1, 1]) {
+    const tx = px + perpX * side * HALF;
+    const tz = pz + perpZ * side * HALF;
+    const cu = (tx - _trackWX) / _TRACK_WORLD * _TRACK_SIZE;
+    const cv = (tz - _trackWZ) / _TRACK_WORLD * _TRACK_SIZE;
+    _trackCtx.beginPath();
+    _trackCtx.arc(cu, cv, 1.4, 0, Math.PI * 2);
+    _trackCtx.fill();
+  }
+  _trackTex.needsUpdate = true;
+}
+
+const _snowUniforms = {
+  uTime:        { value: 0 },
+  uTrackTex:    { value: _trackTex },
+  uTrackAnchor: { value: new THREE.Vector2(_trackWX, _trackWZ) },
+  uTrackWorld:  { value: _TRACK_WORLD },
+};
+
+const SNOW_VS = /* glsl */`
+varying vec3 vWorldPos;
+varying vec3 vNormal;
+void main() {
+  vec4 wp   = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  vNormal   = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const SNOW_FS = /* glsl */`
+uniform float     uTime;
+uniform sampler2D uTrackTex;
+uniform vec2      uTrackAnchor;
+uniform float     uTrackWorld;
+varying vec3 vWorldPos;
+varying vec3 vNormal;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+void main() {
+  // Snowy base with faint texture ripple
+  float n = h21(floor(vWorldPos.xz * 3.5)) * 0.07;
+  vec3 col = vec3(0.88 + n, 0.92 + n, 1.0);
+
+  // Rare sparkle glints
+  float sp = h21(floor(vWorldPos.xz * 22.0 + floor(uTime * 3.0)));
+  if (sp > 0.997) col += vec3(0.9, 1.0, 1.2);
+
+  // Tyre-track impression
+  vec2 trackUV = (vWorldPos.xz - uTrackAnchor) / uTrackWorld;
+  if (trackUV.x >= 0.0 && trackUV.x <= 1.0 &&
+      trackUV.y >= 0.0 && trackUV.y <= 1.0) {
+    float tv     = texture2D(uTrackTex, trackUV).r;
+    float groove = clamp(1.0 - tv, 0.0, 1.0);
+    vec3  gc     = vec3(0.52, 0.60, 0.72);
+    col          = mix(col, gc, groove * 0.82);
+    // Shadow at groove edges
+    float edge = groove * (1.0 - groove) * 4.0;
+    col *= 1.0 - edge * 0.14;
+  }
+
+  // Diffuse + ambient
+  vec3 sun = normalize(vec3(0.5, 1.1, 0.4));
+  float d  = max(dot(vNormal, sun), 0.0);
+  col = col * (0.52 + 0.48 * d) + vec3(0.04, 0.07, 0.14) * (1.0 - d);
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+M.snow = new THREE.ShaderMaterial({
+  vertexShader:   SNOW_VS,
+  fragmentShader: SNOW_FS,
+  uniforms:       _snowUniforms,
+});
+
+// ── Mountain terrain shader (rocky + patchy snow on higher faces) ────────────
+const MTN_VS = /* glsl */`
+varying vec3 vWorldPos;
+varying vec3 vNormal;
+void main() {
+  vec4 wp   = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  vNormal   = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}`;
+
+const MTN_FS = /* glsl */`
+varying vec3 vWorldPos;
+varying vec3 vNormal;
+
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+
+void main() {
+  // Multi-freq rock noise
+  float n1 = h21(floor(vWorldPos.xz * 1.0));
+  float n2 = h21(floor(vWorldPos.xz * 4.1 + 17.0));
+  float n3 = h21(floor(vWorldPos.xz * 11.0 + 43.0));
+  float rn = n1 * 0.5 + n2 * 0.32 + n3 * 0.18;
+  vec3 rock = mix(vec3(0.28, 0.26, 0.22), vec3(0.54, 0.49, 0.43), rn);
+
+  // Snow on upper & flat areas
+  float flatness  = clamp(vNormal.y, 0.0, 1.0);
+  float snowH     = smoothstep(1.5, 5.5, vWorldPos.y);
+  float snowPatch = h21(floor(vWorldPos.xz * 2.8 + 7.0));
+  float snow      = clamp(snowH + snowPatch * 0.25 - 0.12, 0.0, 1.0);
+  snow            = max(snow, flatness * flatness * 0.9);
+  vec3 snowCol    = vec3(0.90, 0.94, 1.00);
+  vec3 col        = mix(rock, snowCol, snow);
+
+  // Lighting
+  vec3 sun  = normalize(vec3(0.5, 1.2, 0.4));
+  float d   = max(dot(vNormal, sun), 0.0);
+  col = col * (0.40 + 0.60 * d) + vec3(0.04, 0.07, 0.18) * (1.0 - d) * 0.7;
+
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+M.mountainTerrain = new THREE.ShaderMaterial({
+  vertexShader:   MTN_VS,
+  fragmentShader: MTN_FS,
+  side:           THREE.DoubleSide,
+});
 
 // ── Animated black water — procedural DataTexture normal map, scrolled per frame ─
 // Two-frequency sine pattern baked into a 256×256 RGBA DataTexture.
@@ -1276,6 +1453,134 @@ function spawnDirtRocks(si) {
   return arr;
 }
 
+// ── Mountain-zone terrain ──────────────────────────────────────────────────────
+// Like spawnTerrain but with high-amplitude jagged peaks using the mountain shader.
+function spawnMountainTerrain(si) {
+  if (!path[si + 1]) return [];
+  const { pos: p0, angle: a0 } = path[si];
+  const { pos: p1, angle: a1 } = path[si + 1];
+  const hw    = segWidth(si) / 2;
+  const edge  = hw + 1.1;
+  const TW    = 100 + Math.min(si * 0.30, 160);
+  const FADE  = 10;
+  const NX    = 14;
+  const NZ    = 3;
+  const PI2   = Math.PI * 2;
+  const px0   = Math.cos(a0), pz0 = Math.sin(a0);
+  const px1   = Math.cos(a1), pz1 = Math.sin(a1);
+  const roadH0 = p0.y + 0.42;
+  const roadH1 = p1.y + 0.42;
+  const meshes = [];
+
+  for (const side of [-1, 1]) {
+    const verts = [], uvs = [], idx = [];
+    for (let j = 0; j <= NZ; j++) {
+      const tf  = j / NZ;
+      const bx  = p0.x + (p1.x - p0.x) * tf;
+      const bz  = p0.z + (p1.z - p0.z) * tf;
+      const bH  = roadH0 + (roadH1 - roadH0) * tf;
+      for (let i = 0; i <= NX; i++) {
+        const lf  = i / NX;
+        const lat = edge + lf * TW;
+        const pxt = px0 + (px1 - px0) * tf;
+        const pzt = pz0 + (pz1 - pz0) * tf;
+        const wx  = bx + pxt * side * lat;
+        const wz  = bz + pzt * side * lat;
+        const ft  = Math.min(1, (lat - edge) / FADE);
+        const fade = ft * ft * (3 - 2 * ft);
+        // High-amplitude mountain terrain
+        const dh =
+          18.0 * Math.sin(wx * PI2 / 80  + 0.70) * Math.cos(wz * PI2 / 95  + 1.20) +
+           9.0 * Math.sin(wx * PI2 / 38  + 2.10) * Math.cos(wz * PI2 / 42  + 3.40) +
+           4.5 * Math.sin(wx * PI2 / 19  + 4.50) * Math.cos(wz * PI2 / 22  + 0.80) +
+           2.0 * Math.sin(wx * PI2 /  9  + 1.10) * Math.cos(wz * PI2 / 11  + 2.30);
+        verts.push(wx, bH + fade * Math.max(0, dh), wz);
+        uvs.push(lf * 6, tf * 2);
+      }
+    }
+    for (let j = 0; j < NZ; j++) {
+      for (let i = 0; i < NX; i++) {
+        const a = j * (NX + 1) + i, b = a + 1;
+        const c = (j + 1) * (NX + 1) + i, d = c + 1;
+        if (side > 0) idx.push(a, b, c, b, d, c);
+        else          idx.push(a, c, b, c, d, b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs,   2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, M.mountainTerrain);
+    mesh.receiveShadow = true;
+    scene.add(mesh);
+    meshes.push(mesh);
+  }
+  return meshes;
+}
+
+// ── Mountain backdrop peaks ──────────────────────────────────────────────────
+// Spawns jagged conical peaks deep to each side of the road.
+const _mtnPeakMat = new THREE.MeshPhongMaterial({
+  color: 0x5a5550, specular: 0x222222, shininess: 8, flatShading: true,
+});
+const _mtnSnowMat = new THREE.MeshPhongMaterial({
+  color: 0xe8eef8, specular: 0x555566, shininess: 18, flatShading: true,
+});
+
+function _makePeakGeo(h, r, segs) {
+  // Build a jagged cone by perturbing cone vertices
+  const geo = new THREE.ConeGeometry(r, h, segs, 1, false);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y < h * 0.499) { // only side verts, not apex or base center
+      const jitter = 0.12 + Math.random() * 0.22;
+      pos.setX(i, pos.getX(i) * (1 + (Math.random() - 0.5) * jitter));
+      pos.setZ(i, pos.getZ(i) * (1 + (Math.random() - 0.5) * jitter));
+    }
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function spawnMountainPeaks(si) {
+  if (!path[si]) return [];
+  const { pos, angle } = path[si];
+  const px  = Math.cos(angle), pz = Math.sin(angle);
+  const fx  = Math.sin(angle), fz = -Math.cos(angle);
+  const arr = [];
+  const count = 2 + (Math.random() * 3 | 0);
+  for (let k = 0; k < count; k++) {
+    for (const side of [-1, 1]) {
+      const dist = 90 + Math.random() * 220;
+      const fwd  = (Math.random() - 0.5) * SLEN * 4;
+      const h    = 40 + Math.random() * 80;
+      const r    = h * (0.18 + Math.random() * 0.14);
+      const segs = 5 + (Math.random() * 4 | 0);
+      const mx   = pos.x + px * side * dist + fx * fwd;
+      const mz   = pos.z + pz * side * dist + fz * fwd;
+      const my   = pos.y;
+      // Rocky body
+      const bodyGeo = _makePeakGeo(h, r, segs);
+      const body = new THREE.Mesh(bodyGeo, _mtnPeakMat);
+      body.position.set(mx, my + h * 0.5, mz);
+      body.rotation.y = Math.random() * Math.PI * 2;
+      body.castShadow = true;
+      scene.add(body); arr.push(body);
+      // Snow cap (smaller inverted cone at top)
+      const capH = h * (0.20 + Math.random() * 0.18);
+      const capGeo = _makePeakGeo(capH, r * 0.62, segs);
+      const cap = new THREE.Mesh(capGeo, _mtnSnowMat);
+      cap.position.set(mx, my + h - capH * 0.35, mz);
+      cap.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(cap); arr.push(cap);
+    }
+  }
+  return arr;
+}
+
 function _spawnManhole(si) {
   const { pos, angle } = path[si];
   const px = Math.cos(angle), pz = Math.sin(angle);
@@ -1437,7 +1742,7 @@ function spawnIntersectionLights(si, pos, angle) {
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks };
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
@@ -2875,6 +3180,13 @@ function frame() {
   // ── Obstacle updates ─────────────────────────────────
   for (const obs of obstacles) obs.update(dt, player.x, player.z, player.seg);
 
+  // ── Snow / tyre-track update ─────────────────────────
+  _snowUniforms.uTime.value += dt;
+  if (zoneTypes[player.seg] === 'mountains') {
+    updateTireTracks(player.x, player.z, player.angle, player.speed);
+    _snowUniforms.uTrackAnchor.value.set(_trackWX, _trackWZ);
+  }
+
   renderer.render(scene, cam);
 }
 
@@ -2926,6 +3238,8 @@ function teardownL1() {
   if (moonMesh) { scene.remove(moonMesh); moonMesh = null; }
   if (starsMesh) { scene.remove(starsMesh); starsMesh.geometry.dispose(); starsMesh.material.dispose(); starsMesh = null; }
   _waterUniforms.uTime.value = 0;
+  _snowUniforms.uTime.value  = 0;
+  _resetTrackCanvas(0, 0);
   _segTypes = SEGMENT_TYPES;
 
   // Reset game state

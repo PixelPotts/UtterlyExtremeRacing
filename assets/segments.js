@@ -210,6 +210,14 @@ export class DirtSegment extends RaceSegment {
   buildMeshes(si, { spawnDirtRocks }) { return spawnDirtRocks(si); }
 }
 
+// ── Mountains (snowy alpine) ───────────────────────────────────────────────────
+export class MountainsSegment extends RaceSegment {
+  get roadMat() { return 'snow';    }
+  get kerb()    { return KERB_NONE; }
+  buildGround(si, { spawnMountainTerrain }) { return spawnMountainTerrain(si); }
+  buildMeshes(si, { spawnMountainPeaks })  { return spawnMountainPeaks(si);   }
+}
+
 // ── Bridge over water ─────────────────────────────────────────────────────────
 export class BridgeSegment extends RaceSegment {
   get kerb() { return KERB_NONE; }   // barriers are built inside spawnBridge
@@ -349,12 +357,14 @@ export const SEGMENT_TYPES = {
   dirt:         new DirtSegment(),
   bridge:       new BridgeSegment(),
   intersection: new IntersectionSegment(),
+  mountains:    new MountainsSegment(),
 };
 
 export const ZONE_PROBS = [
-  ['buildings', 0.42],
-  ['trees',     0.62],
-  ['tunnel',    0.78],
+  ['buildings', 0.38],
+  ['trees',     0.56],
+  ['mountains', 0.68],
+  ['tunnel',    0.80],
   ['bridge',    0.90],
   ['dirt',      1.00],
 ];
