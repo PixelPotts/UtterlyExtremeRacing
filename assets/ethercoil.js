@@ -138,7 +138,10 @@ export class EtherCoil {
     this._chargeFilter= null;
     this._chargeGain  = null;
 
-    this._toroidUniforms = { uCharge: { value: 0 }, uTime: { value: 0 } };
+    // Three separate uniform sets — driven bottom-up during charge
+    this._toroidUniBott  = { uCharge: { value: 0 }, uTime: { value: 0.0 } };  // lowest / largest
+    this._toroidUniMid   = { uCharge: { value: 0 }, uTime: { value: 2.1 } };  // middle
+    this._toroidUniforms = { uCharge: { value: 0 }, uTime: { value: 4.3 } };  // crown (original)
     this._boltCoreUni    = { uAge: { value: 0 } };
     this._boltGlowUni    = { uAge: { value: 0 } };
     this._impactUni      = { uAge: { value: 1 } };
@@ -239,24 +242,30 @@ export class EtherCoil {
       g.add(ring);
     }
 
-    // ── Toroid at crown (y=28.5)
-    const toroidGeo = new THREE.TorusGeometry(6.5, 2.2, 20, 50);
-    const toroidMat = new THREE.ShaderMaterial({
-      vertexShader:   TOROID_VS,
-      fragmentShader: TOROID_FS,
-      uniforms:       this._toroidUniforms,
-      side:           THREE.DoubleSide,
-    });
-    const toroid = new THREE.Mesh(toroidGeo, toroidMat);
-    toroid.rotation.x = Math.PI / 2;
-    toroid.position.y = 28.5;
-    g.add(toroid);
-    this._toroid = toroid;
+    // ── Three stacked toroids: bottom (largest) → middle → crown (smallest)
+    const _mkToroid = (radius, tube, y, unis) => {
+      const mat = new THREE.ShaderMaterial({
+        vertexShader:   TOROID_VS,
+        fragmentShader: TOROID_FS,
+        uniforms:       unis,
+        side:           THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 20, 50), mat);
+      mesh.rotation.x = Math.PI / 2;
+      mesh.position.y = y;
+      g.add(mesh);
+      return mesh;
+    };
 
-    // ── Inner discharge ball
+    _mkToroid(10.5, 1.5, 15.5, this._toroidUniBott);  // bottom — largest
+    _mkToroid( 8.5, 1.8, 22.0, this._toroidUniMid);   // middle
+    const crownMesh = _mkToroid(6.5, 2.2, 28.5, this._toroidUniforms); // crown
+    this._toroid = crownMesh;
+
+    // ── Inner discharge ball (shares crown material)
     const ball = new THREE.Mesh(
       new THREE.SphereGeometry(1.2, 10, 8),
-      toroidMat
+      crownMesh.material
     );
     ball.position.y = 28.5;
     g.add(ball);
@@ -485,10 +494,20 @@ export class EtherCoil {
    * @param {number} px   player world X
    * @param {number} pz   player world Z
    */
+  // Helper: set all three toroid charge values
+  _setCharge(bott, mid, top) {
+    this._toroidUniBott.uCharge.value  = bott;
+    this._toroidUniMid.uCharge.value   = mid;
+    this._toroidUniforms.uCharge.value = top;
+  }
+
   update(dt, px, pz) {
     const actx = this._getActx();
     const dist = Math.hypot(px - this._x, pz - this._z);
     const u    = this._toroidUniforms;
+    // Tick uTime for all three (each has its own phase offset baked in)
+    this._toroidUniBott.uTime.value += dt;
+    this._toroidUniMid.uTime.value  += dt;
     u.uTime.value += dt;
 
     switch (this._phase) {
@@ -508,8 +527,14 @@ export class EtherCoil {
 
       case 'charge': {
         this._phaseTimer += dt;
-        const t = Math.min(this._phaseTimer / 2.8, 1);
-        u.uCharge.value = t;
+        const T = 2.8;
+        const ct = this._phaseTimer;
+        // Bottom fires first (full at 50%), middle next (starts 25%, full 75%), top last (starts 50%, full 100%)
+        const cBott = Math.min(1, ct / (T * 0.5));
+        const cMid  = Math.min(1, Math.max(0, (ct - T * 0.25) / (T * 0.5)));
+        const cTop  = Math.min(1, Math.max(0, (ct - T * 0.50) / (T * 0.5)));
+        this._setCharge(cBott, cMid, cTop);
+        const t = cTop; // used for light intensity + target tracking
         this._ptLight.intensity = t * 18;
         // Continuously re-track player during charge
         const spread = 6;
@@ -525,7 +550,7 @@ export class EtherCoil {
 
       case 'prestrike': {
         this._phaseTimer += dt;
-        u.uCharge.value = 1;
+        this._setCharge(1, 1, 1);
         this._ptLight.intensity = 24;
         if (this._phaseTimer >= 0.05) {
           // Build bolt geometry
@@ -599,10 +624,11 @@ export class EtherCoil {
       case 'decay': {
         this._phaseTimer += dt;
         const t = this._phaseTimer / 0.6;
-        u.uCharge.value = Math.max(0, 1 - t);
-        this._ptLight.intensity = Math.max(0, 18 * (1 - t));
+        const c = Math.max(0, 1 - t);
+        this._setCharge(c, c, c);
+        this._ptLight.intensity = Math.max(0, 18 * c);
         if (this._phaseTimer >= 0.6) {
-          u.uCharge.value = 0;
+          this._setCharge(0, 0, 0);
           this._ptLight.intensity = 0;
           this._phase = 'rest';
           this._phaseTimer = 0;
