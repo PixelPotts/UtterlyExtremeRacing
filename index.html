@@ -2466,7 +2466,8 @@ function _spawnEtherPortal(si) {
       etherComposer.removePortal(id);
       scene.remove(mesh);
       mesh.geometry.dispose();
-      mesh.material.dispose();
+      // Do NOT dispose mesh.material — it is the shared singleton in ether.js;
+      // disposing it would evict the GPU program and cause a recompile stall.
     },
   };
   (obstaclesBySeg[si] ??= []).push(obs);
@@ -3478,7 +3479,9 @@ function startGame() {
   const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
   etherComposer.warmupCompile(renderer, scene, cam).then(() => {
     // TEMP DISABLED: _dummyBt.dispose();
-    _dummyCoil.dispose();
+    // Do NOT dispose _dummyCoil — its materials hold usedTimes≥1 on the compiled
+    // TOROID/BOLT/GLOW/IMPACT programs.  Live EtherCoil instances reuse those cached
+    // programs (Three.js keys the cache by shader source), so no mid-game recompile.
     scene.remove(_dummyEtherRoad, _dummyEtherGround);
     _dummyEtherRoad.geometry.dispose();
     _dummyEtherGround.geometry.dispose();

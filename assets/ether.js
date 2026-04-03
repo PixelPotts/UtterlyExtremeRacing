@@ -101,16 +101,21 @@ void main() {
 // Shared portal uniforms — all plane instances animate together
 const _portalUniforms = { uTime: { value: 0 } };
 
+// Singleton material — never disposed; all portals share the same compiled GPU program.
+let _sharedPortalMat = null;
 function _makePortalMaterial() {
-  return new THREE.ShaderMaterial({
-    vertexShader:   PORTAL_VS,
-    fragmentShader: PORTAL_FS,
-    uniforms:       _portalUniforms,
-    transparent:    true,
-    depthWrite:     false,
-    side:           THREE.DoubleSide,
-    blending:       THREE.AdditiveBlending,
-  });
+  if (!_sharedPortalMat) {
+    _sharedPortalMat = new THREE.ShaderMaterial({
+      vertexShader:   PORTAL_VS,
+      fragmentShader: PORTAL_FS,
+      uniforms:       _portalUniforms,
+      transparent:    true,
+      depthWrite:     false,
+      side:           THREE.DoubleSide,
+      blending:       THREE.AdditiveBlending,
+    });
+  }
+  return _sharedPortalMat;
 }
 
 // ── EtherComposer ────────────────────────────────────────────────────────────
@@ -209,7 +214,8 @@ export class EtherComposer {
     ]).then(() => {
       scene.remove(dummy);
       dummy.geometry.dispose();
-      dummy.material.dispose();
+      // Do NOT dispose dummy.material — it is the shared singleton; keeping it alive
+      // ensures the compiled GPU program stays in Three.js's cache permanently.
     });
   }
 
