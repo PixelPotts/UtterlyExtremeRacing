@@ -307,7 +307,7 @@ import { NeonLightPool }                                        from './assets/n
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmonster.js';
-import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
+import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
@@ -385,9 +385,15 @@ const _DBG = (() => {
   function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 300); }
   return { log };
 })();
-let _dbgLastProg = 0;
+let _dbgLastProg  = 0;
 let _dbgLastScene = 0;   // scene.children.length — logged when it changes
-let _dbgFrameN   = 0;    // frame counter for periodic ambient log
+let _dbgFrameN    = 0;   // frame counter for periodic ambient log
+let _dbgLastTex   = 0;   // renderer.info.memory.textures — logged when it changes
+let _dbgLastGeo   = 0;   // renderer.info.memory.geometries — logged when it changes
+
+// ── EtherCoil + EtherComposer compile/render debug hooks ────────────────────
+setEcDbg((matName) => _DBG.log(`EC_COMPILE\tmat=${matName}`));
+window._etherDbg = (msg) => _DBG.log(msg);
 
 // ── Pink/orange debug rings — show deco frontier + drop frontier ───────────
 // Created lazily after scene exists (see _dbgInitRings below).
@@ -2758,12 +2764,32 @@ function* addDecorations(si) {
   if (zoneTypes[si] === 'neonRoad'    && si > 10 && si % 8 === 0) _spawnNeonCube(si);
   if (zoneTypes[si] === 'mountains') _spawnRockMonster(si);
   if (zoneTypes[si] === 'ether') {
-    // Portal plane at zone entry (first ether seg after non-ether)
-    if (!zoneTypes[si - 1] || zoneTypes[si - 1] !== 'ether') _spawnEtherPortal(si);
-    // Portal plane at zone exit (last ether seg before non-ether)
-    if (!zoneTypes[si + 1] || zoneTypes[si + 1] !== 'ether') _spawnEtherPortal(si);
+    const _isEtherEntry = !zoneTypes[si - 1] || zoneTypes[si - 1] !== 'ether';
+    const _isEtherExit  = !zoneTypes[si + 1] || zoneTypes[si + 1] !== 'ether';
+    // Portal plane at zone entry
+    if (_isEtherEntry) {
+      const _pt = performance.now();
+      _spawnEtherPortal(si);
+      _DBG.log(`SPAWN_PORTAL\tside=entry\tsi=${si}\tms=${(performance.now()-_pt).toFixed(2)}`);
+    }
+    // Portal plane at zone exit
+    if (_isEtherExit) {
+      const _pt = performance.now();
+      _spawnEtherPortal(si);
+      _DBG.log(`SPAWN_PORTAL\tside=exit\tsi=${si}\tms=${(performance.now()-_pt).toFixed(2)}`);
+    }
     // Tesla coil — throttled internally to ~22-seg gap
-    _spawnEtherCoil(si);
+    { const _ct = performance.now(); _spawnEtherCoil(si); const _cMs = performance.now()-_ct;
+      if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
+    // On zone entry: kick off async shader compilation so GPU is ready before the
+    // player arrives (belt-and-suspenders in case traverseVisible missed anything).
+    if (_isEtherEntry) {
+      const _c0 = performance.now();
+      _DBG.log(`ETHER_COMPILE_START\tsi=${si}\tprogs=${renderer.info.programs?.length??0}`);
+      renderer.compileAsync(scene, cam).then(() => {
+        _DBG.log(`ETHER_COMPILE_DONE\tms=${(performance.now()-_c0).toFixed(0)}\tprogs=${renderer.info.programs?.length??0}`);
+      });
+    }
   }
   if (zoneTypes[si] === 'toxic') {
     _spawnRefinery(si);
@@ -3468,7 +3494,16 @@ function startGame() {
   // TEMP DISABLED: _dummyBt.group.visible = false;
 
   const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
-  _dummyCoil._group.visible = false;
+  // Keep group VISIBLE so renderer.compileAsync (which uses traverseVisible) sees it.
+  // The coil is at y=-5000, far below the camera frustum — it will never actually render.
+  // Park the bolt/glow/impact meshes (added to scene at origin) also below the frustum.
+  _dummyCoil._boltCoreMesh.position.y = -5000;
+  _dummyCoil._boltGlowMesh.position.y = -5000;
+  _dummyCoil._impactMesh.position.y   = -5000;
+  // Make them visible so traverseVisible includes them for compileAsync.
+  _dummyCoil._boltCoreMesh.visible = true;
+  _dummyCoil._boltGlowMesh.visible = true;
+  _dummyCoil._impactMesh.visible   = true;
 
   const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherRoad);
   const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherGround);
@@ -4309,11 +4344,18 @@ function frame() {
     const _pc  = renderer.info.programs?.length ?? 0;
     const _sc  = scene.children.length;
     _dbgFrameN++;
-    if (_pc !== _dbgLastProg) { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
+    const _tx = renderer.info.memory.textures;
+    const _gx = renderer.info.memory.geometries;
+    if (_pc !== _dbgLastProg)  { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
     if (_sc !== _dbgLastScene) { _DBG.log(`SCENE_SIZE\tchildren=${_sc}\tdelta=${_sc-_dbgLastScene}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastScene = _sc; }
+    if (_tx !== _dbgLastTex)   { _DBG.log(`MEM_TEX\tcount=${_tx}\tdelta=${_tx-_dbgLastTex}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastTex = _tx; }
+    if (_gx !== _dbgLastGeo)   { _DBG.log(`MEM_GEO\tcount=${_gx}\tdelta=${_gx-_dbgLastGeo}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastGeo = _gx; }
     if (_fms > 8 && raceStarted) _DBG.log(`STUTTER_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`);
     if (_dbgFrameN % 60 === 0 && raceStarted) _DBG.log(`FRAME_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`); }
-  etherComposer.render(scene, cam, player.x, player.z, dt);
+  { const _rt0 = performance.now();
+    etherComposer.render(scene, cam, player.x, player.z, dt);
+    const _rms = performance.now() - _rt0;
+    if (_rms > 3) _DBG.log(`RENDER_L1\tms=${_rms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${renderer.info.programs?.length??0}`); }
 }
 
 window.addEventListener('resize', () => {

@@ -185,15 +185,27 @@ export class EtherComposer {
 
     // Fast path when inactive
     if (this._strength < 0.002 && this._portals.size === 0) {
+      const _r0 = performance.now();
       this._renderer.setRenderTarget(null);
       this._renderer.render(scene, cam);
+      const _ms = performance.now() - _r0;
+      if (_ms > 5) window._etherDbg?.(`RENDER_FAST\tms=${_ms.toFixed(1)}`);
       return;
     }
 
+    if (!this._fullPathUsed) {
+      this._fullPathUsed = true;
+      window._etherDbg?.('RENDER_FULL_FIRST');
+    }
+    const _r0 = performance.now();
     this._renderer.setRenderTarget(this._rt);
     this._renderer.render(scene, cam);
+    const _ms1 = performance.now() - _r0;
+    const _r1 = performance.now();
     this._renderer.setRenderTarget(null);
     this._renderer.render(this._screenScene, this._screenCam);
+    const _ms2 = performance.now() - _r1;
+    if (_ms1 > 5 || _ms2 > 5) window._etherDbg?.(`RENDER_FULL\tms1=${_ms1.toFixed(1)}\tms2=${_ms2.toFixed(1)}`);
   }
 
   resize(cssW, cssH) {

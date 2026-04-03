@@ -89,6 +89,10 @@ function _fracture(pts, depth, spread) {
   return _fracture(out, depth - 1, spread * 0.58);
 }
 
+// ── Compile-event logger — set from index.html to trace shader compilation ───
+let _ecDbg = null;
+export function setEcDbg(fn) { _ecDbg = fn; }
+
 // ── Static shared geometry ────────────────────────────────────────────────────
 const _steelMat = new THREE.MeshPhongMaterial({ color: 0x2a2d35, flatShading: true });
 const _copperMat = new THREE.MeshStandardMaterial({
@@ -290,6 +294,7 @@ export class EtherCoil {
         fragmentShader: TOROID_FS,
         uniforms:       unis,
         side:           THREE.DoubleSide,
+        onBeforeCompile: () => _ecDbg?.('toroid'),
       });
       const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 20, 50), mat);
       mesh.rotation.x = Math.PI / 2;
@@ -343,6 +348,7 @@ export class EtherCoil {
       depthWrite:     false,
       blending:       THREE.AdditiveBlending,
       side:           THREE.DoubleSide,
+      onBeforeCompile: () => _ecDbg?.('boltCore'),
     });
     const boltGlowMat = new THREE.ShaderMaterial({
       vertexShader:   BOLT_VS,
@@ -352,6 +358,7 @@ export class EtherCoil {
       depthWrite:     false,
       blending:       THREE.AdditiveBlending,
       side:           THREE.DoubleSide,
+      onBeforeCompile: () => _ecDbg?.('boltGlow'),
     });
     const impactMat = new THREE.ShaderMaterial({
       vertexShader:   IMPACT_VS,
@@ -361,6 +368,7 @@ export class EtherCoil {
       depthWrite:     false,
       blending:       THREE.AdditiveBlending,
       side:           THREE.DoubleSide,
+      onBeforeCompile: () => _ecDbg?.('impact'),
     });
 
     // Placeholder geometry — rebuilt each strike
