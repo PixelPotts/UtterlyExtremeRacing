@@ -309,7 +309,7 @@ import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmonster.js';
 import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
-import { Refinery, WARMUP_MATS as REF_WARMUP_MATS }     from './assets/refinery.js';
+import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
@@ -2543,7 +2543,8 @@ function _spawnRefinery(si) {
       scene,
       pos.x + px * side * dist,
       pos.z + pz * side * dist,
-      pos.y, angle
+      pos.y, angle,
+      _refineryLightPool
     );
     (obstaclesBySeg[si] ??= []).push(ref);
     obstacles.push(ref);
@@ -2808,7 +2809,9 @@ let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
 // ── EtherCoil light pool — pre-allocated so coil spawn/dispose never changes
 //    the scene's light count and never triggers a mid-game shader recompile.
-const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
+const _etherCoilLightPool  = new EtherCoilLightPool(scene, 3);
+// 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
+const _refineryLightPool   = new RefineryLightPool(scene, 40);
 _dbgInitRings();
 
 pickupManager = new PickupManager(scene, path, zoneTypes);
@@ -4331,6 +4334,7 @@ function teardownL1() {
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
   pickupManager?.restorePool(scene);
   _etherCoilLightPool.restoreTo(scene);
+  _refineryLightPool.restoreTo(scene);
   _manholePool.restoreToScene(scene);
   _pedPool.restoreToScene(scene);
 

@@ -13,6 +13,47 @@ const _blackMat  = new THREE.MeshLambertMaterial({ color: 0x0f0f0f });
 export const WARMUP_MATS = [_steelMat, _rustMat, _concMat, _tankMat, _pipeMat, _plankMat, _yellowMat, _blackMat];
 const _up = new THREE.Vector3(0, 1, 0);
 
+// ── RefineryLightPool ─────────────────────────────────────────────────────────
+// Pre-allocates PointLights for refinery flame stacks so spawning/disposing a
+// Refinery never changes the scene's light count and never triggers a shader
+// recompile mid-game.  Each Refinery needs 5 lights (3 column + 2 freestanding).
+// Size = max_concurrent_refineries × 2_sides × 5_lights — use 40 for safety.
+export class RefineryLightPool {
+  constructor(scene, size = 40) {
+    this._lights = Array.from({ length: size }, () => {
+      const l = new THREE.PointLight(0xff6600, 0, 40);
+      l.position.set(0, -500, 0);
+      scene.add(l);
+      return l;
+    });
+    this._free = this._lights.map((_, i) => i);
+  }
+
+  acquire(x, y, z, color, intensity, distance) {
+    const i = this._free.pop();
+    if (i == null) { console.warn('[RefineryLightPool] exhausted'); return null; }
+    const l = this._lights[i];
+    l.color.setHex(color);
+    l.intensity = intensity;
+    l.distance  = distance;
+    l.position.set(x, y, z);
+    return l;
+  }
+
+  release(light) {
+    if (!light) return;
+    const i = this._lights.indexOf(light);
+    if (i === -1) return;
+    light.intensity = 0;
+    light.position.set(0, -500, 0);
+    this._free.push(i);
+  }
+
+  restoreTo(scene) {
+    for (const l of this._lights) scene.add(l);
+  }
+}
+
 // ── Pipe between two world points ─────────────────────────────────────────────
 function _pipe(scene, ax, ay, az, bx, by, bz, r, meshes) {
   const dx = bx-ax, dy = by-ay, dz = bz-az;
@@ -100,16 +141,18 @@ class Worker {
 
 // ── Refinery ──────────────────────────────────────────────────────────────────
 export class Refinery {
-  constructor(scene, x, z, groundY, roadAngle) {
-    this._scene   = scene;
-    this._x       = x;
-    this._z       = z;
-    this._groundY = groundY;
-    this._angle   = roadAngle;
-    this._meshes  = [];
-    this._workers = [];
-    this._flames  = [];  // { light, cone, t }
-    this._smokes  = [];  // { mesh, mat, t, vy, driftX, driftZ }
+  constructor(scene, x, z, groundY, roadAngle, lightPool = null) {
+    this._scene      = scene;
+    this._x          = x;
+    this._z          = z;
+    this._groundY    = groundY;
+    this._angle      = roadAngle;
+    this._lightPool  = lightPool;
+    this._poolSlots  = [];   // lights acquired from pool — released on dispose
+    this._meshes     = [];
+    this._workers    = [];
+    this._flames     = [];  // { light, cone, t }
+    this._smokes     = [];  // { mesh, mat, t, vy, driftX, driftZ }
     this._smokeTimer = 0;
     this._build();
   }
@@ -128,6 +171,18 @@ export class Refinery {
       if (ry) m.rotation.y = ry;
       S.add(m); mx.push(m);
       return m;
+    };
+
+    // Acquire a flame PointLight from pool if available, else create a new one.
+    const addFlameLight = (x, y, z, color, intensity, distance) => {
+      if (this._lightPool) {
+        const l = this._lightPool.acquire(x, y, z, color, intensity, distance);
+        if (l) { this._poolSlots.push(l); return l; }
+      }
+      const l = new THREE.PointLight(color, intensity, distance);
+      l.position.set(x, y, z);
+      S.add(l); mx.push(l);
+      return l;
     };
 
     // ── Foundation slabs ───────────────────────────────────────────────────
@@ -175,9 +230,7 @@ export class Refinery {
       add(new THREE.CylinderGeometry(0.15, 0.22, stkH, 5), _steelMat, stkX, gY + ch + stkH*0.5, stkZ);
       const flameMat = new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.85, depthWrite: false });
       const flameCone = add(new THREE.ConeGeometry(0.9, 3.0, 7), flameMat, stkX, gY + ch + stkH + 1.5, stkZ);
-      const flameLight = new THREE.PointLight(0xff6600, 14, 40);
-      flameLight.position.set(stkX, gY + ch + stkH + 2.0, stkZ);
-      S.add(flameLight); mx.push(flameLight);
+      const flameLight = addFlameLight(stkX, gY + ch + stkH + 2.0, stkZ, 0xff6600, 14, 40);
       this._flames.push({ light: flameLight, cone: flameCone, mat: flameMat, t: Math.random() * Math.PI * 2 });
     }
 
@@ -190,9 +243,7 @@ export class Refinery {
       add(new THREE.CylinderGeometry(0.06, 0.06, 8, 4), _steelMat, sx, gY + h*0.4, sz).rotation.z = 0.35;
       const fMat = new THREE.MeshBasicMaterial({ color: 0xff9900, transparent: true, opacity: 0.85, depthWrite: false });
       const fCone = add(new THREE.ConeGeometry(1.1, 3.5, 7), fMat, sx, gY + h + 1.75, sz);
-      const fLight = new THREE.PointLight(0xff7700, 18, 55);
-      fLight.position.set(sx, gY + h + 2.5, sz);
-      S.add(fLight); mx.push(fLight);
+      const fLight = addFlameLight(sx, gY + h + 2.5, sz, 0xff7700, 18, 55);
       this._flames.push({ light: fLight, cone: fCone, mat: fMat, t: Math.random() * Math.PI * 2 + 1.5 });
     }
 
@@ -330,6 +381,11 @@ export class Refinery {
     }
     this._smokes = [];
     for (const fl of this._flames) fl.mat.dispose();
+    // Release pooled lights back to the pool (they stay in the scene, just parked).
+    if (this._lightPool) {
+      for (const l of this._poolSlots) this._lightPool.release(l);
+      this._poolSlots = [];
+    }
     for (const m of this._meshes) {
       this._scene.remove(m);
       if (m.isGroup) {
