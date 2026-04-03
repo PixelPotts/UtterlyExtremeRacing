@@ -294,7 +294,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PlayerVehicle, AiVehicle }          from './assets/vehicle.js';
 import { Weapon }                            from './assets/weapons.js';
-import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, WARMUP_MATS } from './assets/obstacles.js';
+import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, OilSprayObstacle, WARMUP_MATS } from './assets/obstacles.js';
 import { BoxTruck, BT_WARMUP_MATS }  from './assets/boxtruck.js';
 import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
@@ -306,6 +306,7 @@ import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster }    from './assets/rockmonster.js';
 import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
+import { Refinery }     from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
@@ -463,6 +464,8 @@ const M = {
   bridgeCable:   new THREE.MeshStandardMaterial({ color: 0x2A2E35, roughness: 0.55, metalness: 0.40 }),
   ground:        new THREE.MeshStandardMaterial({ color: 0x3E5C25, roughness: 1.0,  metalness: 0 }),
   dirtGround:    new THREE.MeshStandardMaterial({ color: 0x6B5038, roughness: 1.0,  metalness: 0 }),
+  toxicRoad:   null,
+  toxicGround: null,
   // ── Level 2 materials ───────────────────────────────
   // metalness: 0 so dielectric specular responds to SpotLights (no env-map needed)
   roadBlack:     new THREE.MeshStandardMaterial({ color: 0x060606, roughness: 0.14, metalness: 0, side: THREE.DoubleSide }),
@@ -849,6 +852,175 @@ M.etherGround = new THREE.ShaderMaterial({
   side:           THREE.DoubleSide,
 });
 
+// ── Toxic road — rusty iron mesh, wavy instability, see-through holes ─────────
+const _toxicRoadUniforms = { uTime: { value: 0 } };
+
+const TOXIC_ROAD_VS = /* glsl */`
+uniform float uTime;
+varying vec3 vWorldPos;
+void main() {
+  vec3 pos = position;
+  // Low-frequency heaving — sections of mesh creak and flex
+  float wave = sin(pos.z * 0.055 + uTime * 0.30) * sin(pos.x * 0.08 + uTime * 0.25);
+  pos.y += 0.20 * wave;
+  vec4 wp   = modelMatrix * vec4(pos, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const TOXIC_ROAD_FS = /* glsl */`
+uniform float uTime;
+varying vec3 vWorldPos;
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+void main() {
+  // Iron mesh grid in world space — pitch ~1.1 m, bar width ~22%
+  float pitch = 1.10;
+  float bw    = 0.24;
+  float gx = fract(vWorldPos.x / pitch);
+  float gz = fract(vWorldPos.z / pitch);
+  float barX = step(gx, bw) + step(1.0 - bw, gx);
+  float barZ = step(gz, bw) + step(1.0 - bw, gz);
+  float onBar = clamp(barX + barZ, 0.0, 1.0);
+  if (onBar < 0.5) discard;
+  // Rust noise on bar surface
+  float rust  = h21(floor(vWorldPos.xz * 0.30));
+  float grime = h21(floor(vWorldPos.xz * 0.80));
+  vec3  iron  = mix(vec3(0.30, 0.20, 0.13), vec3(0.50, 0.30, 0.10), rust);
+  iron = mix(iron, vec3(0.04, 0.04, 0.03), grime * 0.65);
+  // Slow oil seep along Z
+  float seep = step(0.88, fract(vWorldPos.z * 0.11 - uTime * 0.035));
+  iron = mix(iron, vec3(0.06, 0.07, 0.02), seep * 0.55);
+  gl_FragColor = vec4(iron, 1.0);
+}`;
+
+M.toxicRoad = new THREE.ShaderMaterial({
+  vertexShader:   TOXIC_ROAD_VS,
+  fragmentShader: TOXIC_ROAD_FS,
+  uniforms:       _toxicRoadUniforms,
+  side:           THREE.DoubleSide,
+  alphaTest:      0.5,
+});
+
+// ── Toxic ground — bubbling green-black sludge pools ─────────────────────────
+const _toxicGroundUniforms = { uTime: { value: 0 } };
+
+const TOXIC_GROUND_VS = /* glsl */`
+uniform float uTime;
+varying vec2 vUv;
+varying vec3 vWorldPos;
+void main() {
+  vUv = uv;
+  vec3 pos = position;
+  float roadMask = smoothstep(0.0, 0.28, uv.x);
+  float disp = 0.45 * sin(pos.x * 0.14 + uTime * 0.20) * sin(pos.z * 0.11 + uTime * 0.17);
+  pos.y += disp * roadMask;
+  vec4 wp   = modelMatrix * vec4(pos, 1.0);
+  vWorldPos = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const TOXIC_GROUND_FS = /* glsl */`
+uniform float uTime;
+varying vec2 vUv;
+varying vec3 vWorldPos;
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+void main() {
+  // Base: dark olive-green sludge
+  float n1 = h21(floor(vWorldPos.xz * 0.09));
+  float n2 = h21(floor(vWorldPos.xz * 0.24));
+  vec3  base = mix(vec3(0.07, 0.09, 0.02), vec3(0.11, 0.14, 0.03), n1 * 0.6);
+  base = mix(base, vec3(0.03, 0.05, 0.01), n2 * 0.35);
+  // Animated bubble rings
+  vec2 cell  = vWorldPos.xz * 0.15;
+  vec2 cellId = floor(cell);
+  vec2 cellUv = fract(cell) - 0.5;
+  float bubble = 0.0;
+  for (int dx = -1; dx <= 1; dx++) {
+    for (int dy = -1; dy <= 1; dy++) {
+      vec2 c   = cellId + vec2(float(dx), float(dy));
+      float rnd = h21(c);
+      float t   = mod(uTime * 0.7 + rnd * 5.5, 3.2);
+      float rad = mix(0.08, 0.44, smoothstep(0.0, 1.6, t) * smoothstep(3.2, 1.6, t));
+      vec2  center = vec2(h21(c * 1.7) - 0.5, h21(c * 2.3) - 0.5) * 0.45;
+      float d   = length(cellUv - center + vec2(float(dx), float(dy)));
+      bubble = max(bubble, smoothstep(0.04, 0.0, abs(d - rad)) * smoothstep(3.0, 1.8, t));
+    }
+  }
+  vec3 col = base + vec3(0.12, 0.40, 0.04) * bubble * 2.2;
+  // Sheen gloss spots
+  float sheen = step(0.965, h21(floor(vWorldPos.xz * 0.55 + uTime * 0.008)));
+  col += vec3(0.14, 0.18, 0.06) * sheen;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+M.toxicGround = new THREE.ShaderMaterial({
+  vertexShader:   TOXIC_GROUND_VS,
+  fragmentShader: TOXIC_GROUND_FS,
+  uniforms:       _toxicGroundUniforms,
+  side:           THREE.DoubleSide,
+});
+
+// ── Toxic sky — thick yellow-green smog with drifting oil-smoke blobs ─────────
+const _toxicSkyUniforms = { uTime: { value: 0 }, uStrength: { value: 0 } };
+
+const TOXIC_SKY_VS = /* glsl */`
+varying vec3 vDir;
+void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+
+const TOXIC_SKY_FS = /* glsl */`
+uniform float uTime;
+uniform float uStrength;
+varying vec3  vDir;
+float h21(vec2 p) {
+  p = fract(p * vec2(234.34, 435.345));
+  p += dot(p, p + 34.23);
+  return fract(p.x * p.y);
+}
+float fbm(vec2 p) {
+  return h21(p) * 0.50 + h21(p * 2.1 + 1.7) * 0.25 + h21(p * 4.3 + 0.9) * 0.125;
+}
+void main() {
+  vec3 nd = normalize(vDir);
+  // Base smog gradient: olive zenith → dirty amber horizon
+  float horizFac = clamp(1.0 - nd.y * 2.2, 0.0, 1.0);
+  vec3  col = mix(vec3(0.22, 0.26, 0.03), vec3(0.44, 0.40, 0.07), horizFac);
+  // Dense oil-smoke blobs drifting slowly across sky
+  vec2 sUv  = vec2(atan(nd.x, nd.z) / 6.2832 + 0.5, nd.y * 0.5 + 0.5);
+  float bN  = fbm(sUv * 3.2 + vec2(uTime * 0.010, uTime * 0.006));
+  col = mix(col, vec3(0.04, 0.06, 0.01), smoothstep(0.55, 0.38, bN) * 0.80);
+  // Toxic-yellow puke-haze near horizon
+  float haze = smoothstep(0.12, -0.04, nd.y);
+  col = mix(col, vec3(0.55, 0.48, 0.04), haze * 0.45);
+  // Floating ash specks
+  float ash = step(0.9965, h21(floor(nd.xz * 165.0 + floor(uTime * 0.12))));
+  col = mix(col, vec3(0.0), ash);
+  gl_FragColor = vec4(col, uStrength);
+}`;
+
+const _toxicSkyMesh = (() => {
+  const geo  = new THREE.SphereGeometry(1800, 28, 18);
+  const mat  = new THREE.ShaderMaterial({
+    vertexShader:   TOXIC_SKY_VS,
+    fragmentShader: TOXIC_SKY_FS,
+    uniforms:       _toxicSkyUniforms,
+    side:           THREE.BackSide,
+    depthTest:      false,
+    depthWrite:     false,
+    transparent:    true,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = -99;
+  return mesh;
+})();
+
 // ── Evil emoji skybox ─────────────────────────────────────────────────────────
 // Giant sphere rendered from inside; nose at zenith; fades in when entering ether.
 const _etherSkyUniforms = {
@@ -995,6 +1167,7 @@ const _etherSkyMesh = (() => {
   return mesh;
 })();
 scene.add(_etherSkyMesh);
+scene.add(_toxicSkyMesh);
 
 // ── Animated black water — procedural DataTexture normal map, scrolled per frame ─
 // Two-frequency sine pattern baked into a 256×256 RGBA DataTexture.
@@ -2000,6 +2173,65 @@ function spawnEtherGround(si) {
   return meshes;
 }
 
+// ── Toxic zone sludge terrain ─────────────────────────────────────────────────
+function spawnToxicGround(si) {
+  if (!path[si + 1]) return [];
+  const { pos: p0, angle: a0 } = path[si];
+  const { pos: p1, angle: a1 } = path[si + 1];
+  const hw     = segWidth(si) / 2;
+  const edge   = hw + 1.0;
+  const TW     = 60;
+  const NX     = 14;
+  const NZ     = 3;
+  const PI2    = Math.PI * 2;
+  const px0    = Math.cos(a0), pz0 = Math.sin(a0);
+  const px1    = Math.cos(a1), pz1 = Math.sin(a1);
+  const roadH0 = p0.y + 0.38;
+  const roadH1 = p1.y + 0.38;
+  const meshes = [];
+
+  for (const side of [-1, 1]) {
+    const verts = [], uvs = [], idx = [];
+    for (let j = 0; j <= NZ; j++) {
+      const tf  = j / NZ;
+      const bx  = p0.x + (p1.x - p0.x) * tf;
+      const bz  = p0.z + (p1.z - p0.z) * tf;
+      const bH  = roadH0 + (roadH1 - roadH0) * tf;
+      for (let i = 0; i <= NX; i++) {
+        const lf  = i / NX;
+        const lat = edge + lf * TW;
+        const pxt = px0 + (px1 - px0) * tf;
+        const pzt = pz0 + (pz1 - pz0) * tf;
+        const wx  = bx + pxt * side * lat;
+        const wz  = bz + pzt * side * lat;
+        const fade = Math.min(1, lf * 4);
+        const dh  =
+          2.5 * Math.sin(wx * PI2 / 38 + 0.60) * Math.cos(wz * PI2 / 44 + 1.20) +
+          1.2 * Math.sin(wx * PI2 / 18 + 2.10) * Math.cos(wz * PI2 / 22 + 3.40);
+        verts.push(wx, bH + fade * dh, wz);
+        uvs.push(lf, tf);
+      }
+    }
+    for (let j = 0; j < NZ; j++) {
+      for (let i = 0; i < NX; i++) {
+        const a = j * (NX + 1) + i, b = a + 1;
+        const c = (j + 1) * (NX + 1) + i, d = c + 1;
+        if (side > 0) idx.push(a, b, c, b, d, c);
+        else          idx.push(a, c, b, c, d, b);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    geo.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs,   2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, M.toxicGround);
+    scene.add(mesh);
+    meshes.push(mesh);
+  }
+  return meshes;
+}
+
 // ── Mountain backdrop peaks ──────────────────────────────────────────────────
 // Spawns jagged conical peaks deep to each side of the road.
 const _mtnPeakMat = new THREE.MeshPhongMaterial({
@@ -2201,6 +2433,45 @@ function _spawnEtherCoil(si) {
   obstacles.push(coil);
 }
 
+// ── Toxic zone: refineries + oil spray ───────────────────────────────────────
+let _lastRefinerySeg = -999;
+
+function _spawnRefinery(si) {
+  if (!path[si]) return;
+  if (si - _lastRefinerySeg < 22) return;
+  _lastRefinerySeg = si;
+  const { pos, angle } = path[si];
+  const px = Math.cos(angle), pz = Math.sin(angle);
+  for (const side of [-1, 1]) {
+    const dist = 38 + Math.random() * 18;
+    const ref = new Refinery(
+      scene,
+      pos.x + px * side * dist,
+      pos.z + pz * side * dist,
+      pos.y, angle
+    );
+    (obstaclesBySeg[si] ??= []).push(ref);
+    obstacles.push(ref);
+  }
+}
+
+function _spawnOilSpray(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  const px = Math.cos(angle), pz = Math.sin(angle);
+  const side = Math.random() < 0.5 ? -1 : 1;
+  const lat  = (RW / 2 - 1.8) * side;
+  const obs = new OilSprayObstacle(
+    scene, si,
+    pos.x + px * lat,
+    pos.z + pz * lat,
+    pos.y + 0.4,
+    () => { player.speed *= 0.82; camBumpVel += 1.8; }
+  );
+  (obstaclesBySeg[si] ??= []).push(obs);
+  obstacles.push(obs);
+}
+
 // ── Neon cube obstacle (Level 2) ─────────────────────────────────────────────
 function _spawnNeonCube(si) {
   if (!path[si]) return;
@@ -2306,7 +2577,7 @@ function spawnIntersectionLights(si, pos, angle) {
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround };
 
 function addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
@@ -2365,6 +2636,10 @@ function addDecorations(si) {
     if (!zoneTypes[si + 1] || zoneTypes[si + 1] !== 'ether') _spawnEtherPortal(si);
     // Tesla coil — throttled internally to ~22-seg gap
     _spawnEtherCoil(si);
+  }
+  if (zoneTypes[si] === 'toxic') {
+    _spawnRefinery(si);
+    if (si % 3 === 0) _spawnOilSpray(si);
   }
 
   _DBG.log(`DECO\tsi=${si}\tzone=${zoneTypes[si]??'?'}\tms=${(performance.now()-_dT0).toFixed(2)}\tmeshes=${decorSeg[si]?.length??0}`);
@@ -3873,6 +4148,20 @@ function frame() {
     _snowUniforms.uTrackAnchor.value.set(_trackWX, _trackWZ);
   }
 
+  // ── Toxic zone: road + ground + sky ──────────────────
+  _toxicRoadUniforms.uTime.value   += dt;
+  _toxicGroundUniforms.uTime.value += dt;
+  _toxicSkyMesh.position.copy(cam.position);
+  const _toxicZone = zoneTypes[player.seg] === 'toxic';
+  _toxicSkyUniforms.uTime.value    += dt;
+  _toxicSkyUniforms.uStrength.value +=
+    ((_toxicZone ? 1.0 : 0.0) - _toxicSkyUniforms.uStrength.value) * Math.min(dt * 1.6, 1);
+  // Fog: tint yellow-green in toxic zone, restore default otherwise
+  const _toxicFogC = _toxicZone ? 0x8fa820 : 0x3E4A52;
+  scene.fog.color.lerp(new THREE.Color(_toxicFogC), Math.min(dt * 1.4, 1));
+  scene.fog.near += ((_toxicZone ? 22  : 55)  - scene.fog.near) * Math.min(dt * 1.4, 1);
+  scene.fog.far  += ((_toxicZone ? 90  : 210) - scene.fog.far)  * Math.min(dt * 1.4, 1);
+
   // ── Ether road + ground + skybox animation ───────────
   _etherRoadUniforms.uTime.value    += dt;
   _etherGroundUniforms.uTime.value  += dt;
@@ -3926,7 +4215,7 @@ function teardownL1() {
 
   // Wipe scene, re-add persistent objects
   scene.clear();
-  scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh);
+  scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh, _toxicSkyMesh);
   streetLightPool.forEach(l => scene.add(l));
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
   pickupManager?.restorePool(scene);
@@ -3965,6 +4254,13 @@ function teardownL1() {
   _resetTrackCanvas(0, 0);
   _lastMonsterSeg   = -999;
   _lastEtherCoilSeg = -999;
+  _lastRefinerySeg  = -999;
+  _toxicRoadUniforms.uTime.value    = 0;
+  _toxicGroundUniforms.uTime.value  = 0;
+  _toxicSkyUniforms.uTime.value     = 0;
+  _toxicSkyUniforms.uStrength.value = 0;
+  scene.fog.color.setHex(0x3E4A52);
+  scene.fog.near = 55; scene.fog.far = 210;
   _etherPortalSeq = 0;
   etherComposer._portals.clear();
   _segTypes = SEGMENT_TYPES;

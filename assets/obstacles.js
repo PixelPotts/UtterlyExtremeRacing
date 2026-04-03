@@ -421,5 +421,103 @@ export class NeonCubeObstacle extends Obstacle {
   }
 }
 
+// ── Oil Spray (toxic zone nozzle) ───────────────────────────────────────────
+const _nozzleMat = new THREE.MeshLambertMaterial({ color: 0x3a3020 });
+const _nozzleTipOff = new THREE.MeshBasicMaterial({ color: 0x556600 });
+const _nozzleTipOn  = new THREE.MeshBasicMaterial({ color: 0xaaff00 });
+const _slickMat = () => new THREE.MeshBasicMaterial({
+  color: 0x111a02, transparent: true, opacity: 0, depthWrite: false,
+});
+
+export class OilSprayObstacle extends Obstacle {
+  constructor(scene, si, x, z, pathY = 0, onHit = null) {
+    super(scene, si, x, z);
+    this._pathY    = pathY;
+    this._onHit    = onHit;
+    this._timer    = Math.random() * 7;   // desync starts
+    this._active   = false;
+    this._slicks   = [];
+    this._spawnT   = 0;
+    this._hitCD    = 0;
+
+    const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.24, 1.2, 6), _nozzleMat);
+    nozzle.position.set(x, pathY + 0.6, z);
+    scene.add(nozzle);
+    this._tip = new THREE.Mesh(new THREE.SphereGeometry(0.11, 5, 4), _nozzleTipOff.clone());
+    this._tip.position.set(x, pathY + 1.32, z);
+    scene.add(this._tip);
+    this.meshes = [nozzle, this._tip];
+  }
+
+  update(dt, carX, carZ) {
+    this._timer  += dt;
+    this._hitCD  -= dt;
+    const tCycle  = this._timer % 7.0;
+    const wasOn   = this._active;
+    this._active  = tCycle < 2.0;
+    this._tip.material.color.set(this._active ? 0xaaff00 : 0x556600);
+
+    // Spawn slicks while spraying
+    if (this._active) {
+      this._spawnT += dt;
+      if (this._spawnT > 0.32) {
+        this._spawnT = 0;
+        const r   = 1.8 + Math.random() * 1.6;
+        const geo = new THREE.CircleGeometry(r, 12);
+        const mat = _slickMat();
+        const m   = new THREE.Mesh(geo, mat);
+        m.rotation.x = -Math.PI / 2;
+        m.position.set(
+          this.x + (Math.random()-0.5) * 7,
+          this._pathY + 0.48,
+          this.z + (Math.random()-0.5) * 7
+        );
+        m.renderOrder = 2;
+        this.scene.add(m);
+        this.meshes.push(m);
+        this._slicks.push({ m, mat, life: 1.0, fadingIn: true });
+      }
+      // Hit detection
+      if (this._hitCD <= 0) {
+        const d2 = (carX - this.x) ** 2 + (carZ - this.z) ** 2;
+        if (d2 < 49) { this._onHit?.(); this._hitCD = 0.5; }
+      }
+    } else {
+      this._spawnT = 0;
+    }
+
+    // Animate slick opacity
+    for (let i = this._slicks.length - 1; i >= 0; i--) {
+      const sl = this._slicks[i];
+      if (sl.fadingIn) {
+        sl.mat.opacity = Math.min(0.62, sl.mat.opacity + dt * 2.2);
+        if (sl.mat.opacity >= 0.62) sl.fadingIn = false;
+      } else {
+        sl.life -= dt / 4.5;
+        sl.mat.opacity = Math.max(0, sl.life * 0.62);
+        if (sl.life <= 0) {
+          this.scene.remove(sl.m);
+          sl.m.geometry.dispose();
+          sl.mat.dispose();
+          const idx = this.meshes.indexOf(sl.m);
+          if (idx !== -1) this.meshes.splice(idx, 1);
+          this._slicks.splice(i, 1);
+        }
+      }
+    }
+  }
+
+  dispose() {
+    for (const sl of this._slicks) {
+      this.scene.remove(sl.m);
+      sl.m.geometry.dispose();
+      sl.mat.dispose();
+    }
+    this._slicks = [];
+    this._tip.material.dispose();
+    super.dispose();
+  }
+}
+
 // Materials that need shader warmup — kept resident by an invisible mesh in the main scene.
 export const WARMUP_MATS = [_mhMat, _mhRingMat, _mhHoleMat, _neonBodyMat];

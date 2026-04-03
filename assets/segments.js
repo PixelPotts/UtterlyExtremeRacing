@@ -225,6 +225,13 @@ export class MountainsSegment extends RaceSegment {
   buildMeshes(si, { spawnMountainPeaks })  { return spawnMountainPeaks(si);   }
 }
 
+// ── Toxic sludge ──────────────────────────────────────────────────────────────
+export class ToxicSegment extends RaceSegment {
+  get roadMat() { return 'toxicRoad'; }
+  get kerb()    { return KERB_NONE;   }
+  buildGround(si, { spawnToxicGround }) { return spawnToxicGround(si); }
+}
+
 // ── Bridge over water ─────────────────────────────────────────────────────────
 export class BridgeSegment extends RaceSegment {
   get kerb() { return KERB_NONE; }   // barriers are built inside spawnBridge
@@ -366,6 +373,7 @@ export const SEGMENT_TYPES = {
   intersection: new IntersectionSegment(),
   mountains:    new MountainsSegment(),
   ether:        new EtherSegment(),
+  toxic:        new ToxicSegment(),
 };
 
 export const ZONE_PROBS = [
@@ -373,7 +381,8 @@ export const ZONE_PROBS = [
   ['trees',     0.54],
   ['mountains', 0.65],
   ['ether',     0.72],  // ~7% chance — rare dimensional rift
-  ['tunnel',    0.82],
-  ['bridge',    0.91],
+  ['toxic',     0.79],  // ~7% chance — toxic sludge refinery corridor
+  ['tunnel',    0.88],
+  ['bridge',    0.94],
   ['dirt',      1.00],
 ];
