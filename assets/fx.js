@@ -1,9 +1,33 @@
 import * as THREE from 'three';
 
-// ── Shared geometries/materials ────────────────────────────────────────────
+// ── Shared geometries ───────────────────────────────────────────────────────
 const _ringGeo   = new THREE.RingGeometry(0.1, 1.0, 32);
 const _sparkGeo  = new THREE.SphereGeometry(0.12, 4, 3);
 const _smokeGeo  = new THREE.SphereGeometry(0.22, 4, 3);
+
+// ── Material pools (avoid per-explosion allocations / GC spikes) ───────────
+// Sizes: ring=3, spark=64 (28×2+margin), smoke=32 (14×2+margin)
+const _ringPool  = Array.from({ length: 3 },  () => ({ inUse: false, mat: new THREE.MeshBasicMaterial({ color: 0xFF8800, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false }) }));
+const _sparkPool = Array.from({ length: 64 }, () => ({ inUse: false, mat: new THREE.MeshBasicMaterial({ color: 0xFF5500, transparent: true, opacity: 1 }) }));
+const _smokePool = Array.from({ length: 32 }, () => ({ inUse: false, mat: new THREE.MeshLambertMaterial({ color: 0x333333, transparent: true, opacity: 0.55, depthWrite: false }) }));
+
+function _borrow(pool, color) {
+  for (let i = 0; i < pool.length; i++) {
+    if (!pool[i].inUse) {
+      pool[i].inUse = true;
+      if (color !== undefined) pool[i].mat.color.setHex(color);
+      return { slot: i, pool, mat: pool[i].mat };
+    }
+  }
+  // Fallback: reuse slot 0 (shouldn't happen with correct pool sizes)
+  pool[0].inUse = true;
+  if (color !== undefined) pool[0].mat.color.setHex(color);
+  return { slot: 0, pool, mat: pool[0].mat };
+}
+
+function _return(entry) {
+  entry.pool[entry.slot].inUse = false;
+}
 
 // ── Explosion ──────────────────────────────────────────────────────────────
 // Usage: new Explosion(scene, position)
@@ -12,30 +36,27 @@ const _smokeGeo  = new THREE.SphereGeometry(0.22, 4, 3);
 export class Explosion {
   constructor(scene, position) {
     this._scene    = scene;
-    this._parts    = [];  // { mesh, vx, vy, vz, life, maxLife, type }
+    this._parts    = [];  // { mesh, vx, vy, vz, life, maxLife, type, _pool }
     this._alive    = true;
 
     const p = position;
 
     // ── Shockwave ring ──────────────────────────────────────────────
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xFF8800, side: THREE.DoubleSide,
-      transparent: true, opacity: 0.7, depthWrite: false,
-    });
-    const ring = new THREE.Mesh(_ringGeo, ringMat);
+    const ringEntry = _borrow(_ringPool, 0xFF8800);
+    ringEntry.mat.opacity = 0.7;
+    const ring = new THREE.Mesh(_ringGeo, ringEntry.mat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.copy(p).setY(0.05);
     scene.add(ring);
     this._parts.push({ mesh: ring, life: 1, maxLife: 1, type: 'ring',
-      sx: 1, sy: 1 });
+      sx: 1, sy: 1, _pool: ringEntry });
 
     // ── Fireball sparks ─────────────────────────────────────────────
     for (let i = 0; i < 28; i++) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: Math.random() < 0.5 ? 0xFF5500 : 0xFFCC00,
-        transparent: true, opacity: 1,
-      });
-      const m = new THREE.Mesh(_sparkGeo, mat);
+      const color = Math.random() < 0.5 ? 0xFF5500 : 0xFFCC00;
+      const sparkEntry = _borrow(_sparkPool, color);
+      sparkEntry.mat.opacity = 1;
+      const m = new THREE.Mesh(_sparkGeo, sparkEntry.mat);
       m.position.copy(p);
       scene.add(m);
       const ang  = Math.random() * Math.PI * 2;
@@ -48,15 +69,15 @@ export class Explosion {
         vz: Math.sin(ang) * Math.sin(tilt) * spd,
         life: 0.55 + Math.random() * 0.35,
         maxLife: 0.9,
+        _pool: sparkEntry,
       });
     }
 
     // ── Smoke puffs ─────────────────────────────────────────────────
     for (let i = 0; i < 14; i++) {
-      const mat = new THREE.MeshLambertMaterial({
-        color: 0x333333, transparent: true, opacity: 0.55, depthWrite: false,
-      });
-      const m = new THREE.Mesh(_smokeGeo, mat);
+      const smokeEntry = _borrow(_smokePool, 0x333333);
+      smokeEntry.mat.opacity = 0.55;
+      const m = new THREE.Mesh(_smokeGeo, smokeEntry.mat);
       m.position.copy(p);
       scene.add(m);
       const ang = Math.random() * Math.PI * 2;
@@ -68,6 +89,7 @@ export class Explosion {
         vz: Math.sin(ang) * spd,
         life: 1.2 + Math.random() * 0.6,
         maxLife: 1.8,
+        _pool: smokeEntry,
       });
     }
   }
@@ -105,7 +127,7 @@ export class Explosion {
 
       if (p.life <= 0) {
         this._scene.remove(p.mesh);
-        p.mesh.material.dispose();
+        _return(p._pool);
         this._parts.splice(i, 1);
       } else {
         anyAlive = true;
@@ -119,7 +141,7 @@ export class Explosion {
   dispose() {
     for (const p of this._parts) {
       this._scene.remove(p.mesh);
-      p.mesh.material.dispose();
+      _return(p._pool);
     }
     this._parts = [];
     this._alive = false;

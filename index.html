@@ -295,7 +295,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PlayerVehicle, AiVehicle }          from './assets/vehicle.js';
 import { Weapon }                            from './assets/weapons.js';
 import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, WARMUP_MATS } from './assets/obstacles.js';
-import { BoxTruck }  from './assets/boxtruck.js';
+import { BoxTruck, BT_WARMUP_MATS }  from './assets/boxtruck.js';
 import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
@@ -1109,6 +1109,7 @@ scene.add(tunnelFill);
     ...BLDG_MATS,
     TRIM_MAT,
     ...WARMUP_MATS,
+    ...BT_WARMUP_MATS,
   ];
   for (const mat of _wMats) {
     const m = new THREE.Mesh(_wGeo, mat);
@@ -1121,7 +1122,7 @@ scene.add(tunnelFill);
 }
 
 // ── Loading screen progress ─────────────────────────────
-const _TOTAL = 12;  // 9 textures + 3 audio
+const _TOTAL = 13;  // 9 textures + 4 audio
 let _loaded = 0;
 const _audioPre = {};
 function _onAsset() {
@@ -1139,7 +1140,7 @@ function _onAsset() {
   }
 }
 // Pre-fetch audio (no AudioContext needed — just raw bytes)
-['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg'].forEach(url =>
+['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg', 'assets/sfx/tire_squeal.ogg'].forEach(url =>
   fetch(url).then(r => r.arrayBuffer()).then(buf => { _audioPre[url] = buf; _onAsset(); }).catch(() => _onAsset())
 );
 
