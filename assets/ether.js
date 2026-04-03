@@ -231,5 +231,14 @@ export class EtherComposer {
     });
   }
 
+  // Force GPU program linking by doing one real render pass on both scenes.
+  // Call after warmupCompile resolves, while loader overlay is still visible.
+  forceRender(renderer, scene, cam) {
+    renderer.setRenderTarget(this._rt);
+    renderer.render(scene, cam);
+    renderer.setRenderTarget(null);
+    renderer.render(this._screenScene, this._screenCam);
+  }
+
   dispose() { this._rt.dispose(); }
 }

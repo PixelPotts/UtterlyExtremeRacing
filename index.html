@@ -248,8 +248,9 @@ canvas { display: block; cursor: none; }
     float rings=sin(r*30.-t*4.2)*.5+.5;
     col+=rings*.06*pC;
     // outer vignette
-    col*=1.-smoothstep(.32,.88,r)*.92;
+    col*=1.-smoothstep(.22,.78,r)*.97;
     col*=scan;
+    col*=0.38;
     col=pow(clamp(col,0.,1.),vec3(.72));
     gl_FragColor=vec4(col,1.);
   }`;
@@ -1358,12 +1359,43 @@ function _onAsset() {
   const sta = document.getElementById('loader-status');
   if (bar) bar.style.width = pct + '%';
   if (_loaded >= _TOTAL) {
-    if (sta) sta.textContent = 'READY';
-    const btn = document.getElementById('loader-btn');
-    if (btn) btn.style.display = 'block';
+    if (sta) sta.textContent = 'COMPILING SHADERS...';
+    _precompileShaders(sta);
   } else {
     if (sta) sta.textContent = _loaded + ' / ' + _TOTAL;
   }
+}
+
+function _precompileShaders(sta) {
+  // Dummy EtherCoil — keeps TOROID/BOLT/GLOW/IMPACT programs in GPU cache
+  const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
+  _dummyCoil._boltCoreMesh.position.y = -5000;
+  _dummyCoil._boltGlowMesh.position.y = -5000;
+  _dummyCoil._impactMesh.position.y   = -5000;
+  _dummyCoil._boltCoreMesh.visible = true;
+  _dummyCoil._boltGlowMesh.visible = true;
+  _dummyCoil._impactMesh.visible   = true;
+
+  const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherRoad);
+  const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherGround);
+  _dummyEtherRoad.position.set(0, -500, 0);   _dummyEtherRoad.frustumCulled = false;
+  _dummyEtherGround.position.set(0, -500, 0);  _dummyEtherGround.frustumCulled = false;
+  scene.add(_dummyEtherRoad, _dummyEtherGround);
+
+  etherComposer.warmupCompile(renderer, scene, cam).then(() => {
+    // Force GPU driver to fully link all programs via real draw calls.
+    // Game canvas is behind the loader overlay — user won't see this render.
+    etherComposer.forceRender(renderer, scene, cam);
+
+    scene.remove(_dummyEtherRoad, _dummyEtherGround);
+    _dummyEtherRoad.geometry.dispose();
+    _dummyEtherGround.geometry.dispose();
+    // _dummyCoil stays alive — its programs must remain in GPU cache
+
+    if (sta) sta.textContent = 'READY';
+    const btn = document.getElementById('loader-btn');
+    if (btn) btn.style.display = 'block';
+  });
 }
 // Pre-fetch audio (no AudioContext needed — just raw bytes)
 ['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg', 'assets/sfx/tire_squeal.ogg'].forEach(url =>
@@ -3475,57 +3507,14 @@ function startCountdown() {
 // ── Start game (called after loading screen TAP) ────────
 function startGame() {
   document.documentElement.requestFullscreen?.().catch(() => {});
-
-  const ldr = document.getElementById('loader');
-  const sta = document.getElementById('loader-status');
-
   bgm.play().then(() => { if (!raceStarted) bgm.pause(); }).catch(() => {});
   initAudio().catch(() => {});
 
-  // Pre-compile shaders; keep the loader visible as the progress screen.
-  // Dummy objects bake all mid-game shader variants before first frame:
-  //   • BoxTruck      — MeshLambertMaterial + receiveShadow variant
-  //   • EtherCoil     — TOROID/BOLT/GLOW/IMPACT ShaderMaterials + MeshPhong + MeshStandard
-  //   • etherRoad     — ShaderMaterial, only used on ether road quads
-  //   • etherGround   — ShaderMaterial, only used on ether terrain
-
-  // TEMP DISABLED: const _dummyBt = new BoxTruck(scene, path, 0, SLEN);
-  // TEMP DISABLED: _dummyBt.group.visible = false;
-
-  const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
-  // Keep group VISIBLE so renderer.compileAsync (which uses traverseVisible) sees it.
-  // The coil is at y=-5000, far below the camera frustum — it will never actually render.
-  // Park the bolt/glow/impact meshes (added to scene at origin) also below the frustum.
-  _dummyCoil._boltCoreMesh.position.y = -5000;
-  _dummyCoil._boltGlowMesh.position.y = -5000;
-  _dummyCoil._impactMesh.position.y   = -5000;
-  // Make them visible so traverseVisible includes them for compileAsync.
-  _dummyCoil._boltCoreMesh.visible = true;
-  _dummyCoil._boltGlowMesh.visible = true;
-  _dummyCoil._impactMesh.visible   = true;
-
-  const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherRoad);
-  const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), M.etherGround);
-  _dummyEtherRoad.position.set(0, -500, 0);
-  _dummyEtherGround.position.set(0, -500, 0);
-  scene.add(_dummyEtherRoad, _dummyEtherGround);
-
-  const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
-  etherComposer.warmupCompile(renderer, scene, cam).then(() => {
-    // TEMP DISABLED: _dummyBt.dispose();
-    // Do NOT dispose _dummyCoil — its materials hold usedTimes≥1 on the compiled
-    // TOROID/BOLT/GLOW/IMPACT programs.  Live EtherCoil instances reuse those cached
-    // programs (Three.js keys the cache by shader source), so no mid-game recompile.
-    scene.remove(_dummyEtherRoad, _dummyEtherGround);
-    _dummyEtherRoad.geometry.dispose();
-    _dummyEtherGround.geometry.dispose();
-    clearTimeout(_showCompile);
-    if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
-    frame();
-    // Load mission, show intro story, then start countdown
-    if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSION);
-    DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
-  });
+  const ldr = document.getElementById('loader');
+  if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
+  frame();
+  if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSION);
+  DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
 }
 window._startRace = startGame;
 
