@@ -1513,8 +1513,9 @@ function genPt() {
 for (let i = 0; i < AHEA + KEEP + 30; i++) genPt();
 
 // ── Fixed building: 188 — always in a buildings segment at si=42 ────────────
+// Guard: don't override the initial hardcoded zone (segs 0..76 = toxic opener)
 const BLDG_188_SEG = 42;
-zoneTypes[BLDG_188_SEG] = 'buildings';
+if (BLDG_188_SEG >= 77) zoneTypes[BLDG_188_SEG] = 'buildings';
 
 // ── Road Mesh ──────────────────────────────────────────
 const segs = {};
