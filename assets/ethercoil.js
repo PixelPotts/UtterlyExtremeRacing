@@ -100,6 +100,67 @@ const _copperMat = new THREE.MeshStandardMaterial({
   emissive: new THREE.Color(0x1a0800), emissiveIntensity: 1.0,
 });
 
+// ── Shared materials + helix geo — one set for ALL EtherCoil instances ────────
+// Each mesh sets material.uniforms via onBeforeRender before its draw call,
+// so per-instance animation state works correctly with a single shared material.
+let _sharedToroidMat   = null;
+let _sharedBoltCoreMat = null;
+let _sharedBoltGlowMat = null;
+let _sharedImpactMat   = null;
+let _sharedHelixGeo    = null;
+
+function _ensureSharedAssets() {
+  if (_sharedToroidMat) return;
+
+  _sharedToroidMat = new THREE.ShaderMaterial({
+    vertexShader: TOROID_VS, fragmentShader: TOROID_FS,
+    uniforms: { uCharge: { value: 0 }, uTime: { value: 0 } },
+    side: THREE.DoubleSide,
+    onBeforeCompile: () => _ecDbg?.('toroid'),
+  });
+  _sharedToroidMat.isShared = true;
+
+  _sharedBoltCoreMat = new THREE.ShaderMaterial({
+    vertexShader: BOLT_VS, fragmentShader: BOLT_FS,
+    uniforms: { uAge: { value: 0 } },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    onBeforeCompile: () => _ecDbg?.('boltCore'),
+  });
+  _sharedBoltCoreMat.isShared = true;
+
+  _sharedBoltGlowMat = new THREE.ShaderMaterial({
+    vertexShader: BOLT_VS, fragmentShader: GLOW_FS,
+    uniforms: { uAge: { value: 0 } },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    onBeforeCompile: () => _ecDbg?.('boltGlow'),
+  });
+  _sharedBoltGlowMat.isShared = true;
+
+  _sharedImpactMat = new THREE.ShaderMaterial({
+    vertexShader: IMPACT_VS, fragmentShader: IMPACT_FS,
+    uniforms: { uAge: { value: 1 } },
+    transparent: true, depthWrite: false,
+    blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    onBeforeCompile: () => _ecDbg?.('impact'),
+  });
+  _sharedImpactMat.isShared = true;
+
+  // Helix geometry: most expensive per-coil build — compute once, share.
+  const hPts = [];
+  const turns = 20, ppt = 10, R = 3.2, H = 22;
+  for (let i = 0; i <= turns * ppt; i++) {
+    const t = i / (turns * ppt);
+    const θ = t * turns * Math.PI * 2;
+    hPts.push(new THREE.Vector3(R * Math.cos(θ), 3 + t * H, R * Math.sin(θ)));
+  }
+  _sharedHelixGeo = new THREE.TubeGeometry(
+    new THREE.CatmullRomCurve3(hPts), 200, 0.10, 5, false
+  );
+  _sharedHelixGeo.isShared = true;
+}
+
 // ── EtherCoilLightPool ────────────────────────────────────────────────────────
 // Pre-allocates PointLight pairs (charge pt + ground impact) so EtherCoil
 // spawn/dispose never changes the scene's active light count and never triggers
@@ -191,6 +252,7 @@ export class EtherCoil {
     this._lightPool = lightPool;
     this._lightSlot = lightPool?.acquire() ?? null;
 
+    _ensureSharedAssets();
     this._buildCoil();
     this._buildBoltRig();
   }
@@ -259,21 +321,8 @@ export class EtherCoil {
       }
     }
 
-    // ── Helix winding: 20 turns × 10 pts/turn = 200 points
-    {
-      const pts = [];
-      const turns = 20, ppt = 10, R = 3.2, H = 22;
-      for (let i = 0; i <= turns * ppt; i++) {
-        const t = i / (turns * ppt);
-        const θ = t * turns * Math.PI * 2;
-        pts.push(new THREE.Vector3(R * Math.cos(θ), 3 + t * H, R * Math.sin(θ)));
-      }
-      const curve  = new THREE.CatmullRomCurve3(pts);
-      const helixGeo = new THREE.TubeGeometry(curve, 400, 0.10, 5, false);
-      const helix = new THREE.Mesh(helixGeo, _copperMat.clone());
-      this._helixMesh = helix;
-      g.add(helix);
-    }
+    // ── Helix winding: shared geometry (pre-computed once)
+    g.add(new THREE.Mesh(_sharedHelixGeo, _copperMat));
 
     // ── Primary coil: 3 pancake rings at base
     for (let i = 0; i < 3; i++) {
@@ -289,14 +338,11 @@ export class EtherCoil {
 
     // ── Three stacked toroids: bottom (largest) → middle → crown (smallest)
     const _mkToroid = (radius, tube, y, unis) => {
-      const mat = new THREE.ShaderMaterial({
-        vertexShader:   TOROID_VS,
-        fragmentShader: TOROID_FS,
-        uniforms:       unis,
-        side:           THREE.DoubleSide,
-        onBeforeCompile: () => _ecDbg?.('toroid'),
-      });
-      const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 20, 50), mat);
+      const mesh = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 20, 50), _sharedToroidMat);
+      mesh.onBeforeRender = () => {
+        _sharedToroidMat.uniforms.uCharge.value = unis.uCharge.value;
+        _sharedToroidMat.uniforms.uTime.value   = unis.uTime.value;
+      };
       mesh.rotation.x = Math.PI / 2;
       mesh.position.y = y;
       g.add(mesh);
@@ -308,11 +354,13 @@ export class EtherCoil {
     const crownMesh = _mkToroid(6.5, 2.2, 28.5, this._toroidUniforms); // crown
     this._toroid = crownMesh;
 
-    // ── Inner discharge ball (shares crown material)
-    const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 10, 8),
-      crownMesh.material
-    );
+    // ── Inner discharge ball (shares crown uniforms via onBeforeRender)
+    const _crowUnis = this._toroidUniforms;
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(1.2, 10, 8), _sharedToroidMat);
+    ball.onBeforeRender = () => {
+      _sharedToroidMat.uniforms.uCharge.value = _crowUnis.uCharge.value;
+      _sharedToroidMat.uniforms.uTime.value   = _crowUnis.uTime.value;
+    };
     ball.position.y = 28.5;
     g.add(ball);
 
@@ -340,41 +388,23 @@ export class EtherCoil {
 
   // ── Bolt rig (hidden until strike) ─────────────────────────────────────────
   _buildBoltRig() {
-    const boltCoreMat = new THREE.ShaderMaterial({
-      vertexShader:   BOLT_VS,
-      fragmentShader: BOLT_FS,
-      uniforms:       this._boltCoreUni,
-      transparent:    true,
-      depthWrite:     false,
-      blending:       THREE.AdditiveBlending,
-      side:           THREE.DoubleSide,
-      onBeforeCompile: () => _ecDbg?.('boltCore'),
-    });
-    const boltGlowMat = new THREE.ShaderMaterial({
-      vertexShader:   BOLT_VS,
-      fragmentShader: GLOW_FS,
-      uniforms:       this._boltGlowUni,
-      transparent:    true,
-      depthWrite:     false,
-      blending:       THREE.AdditiveBlending,
-      side:           THREE.DoubleSide,
-      onBeforeCompile: () => _ecDbg?.('boltGlow'),
-    });
-    const impactMat = new THREE.ShaderMaterial({
-      vertexShader:   IMPACT_VS,
-      fragmentShader: IMPACT_FS,
-      uniforms:       this._impactUni,
-      transparent:    true,
-      depthWrite:     false,
-      blending:       THREE.AdditiveBlending,
-      side:           THREE.DoubleSide,
-      onBeforeCompile: () => _ecDbg?.('impact'),
-    });
+    const bcu = this._boltCoreUni;
+    const bgu = this._boltGlowUni;
+    const iu  = this._impactUni;
 
     // Placeholder geometry — rebuilt each strike
     const dummyGeo = new THREE.BufferGeometry();
-    this._boltCoreMesh = new THREE.Mesh(dummyGeo, boltCoreMat);
-    this._boltGlowMesh = new THREE.Mesh(dummyGeo.clone(), boltGlowMat);
+
+    this._boltCoreMesh = new THREE.Mesh(dummyGeo, _sharedBoltCoreMat);
+    this._boltCoreMesh.onBeforeRender = () => {
+      _sharedBoltCoreMat.uniforms.uAge.value = bcu.uAge.value;
+    };
+
+    this._boltGlowMesh = new THREE.Mesh(dummyGeo.clone(), _sharedBoltGlowMat);
+    this._boltGlowMesh.onBeforeRender = () => {
+      _sharedBoltGlowMat.uniforms.uAge.value = bgu.uAge.value;
+    };
+
     this._boltCoreMesh.visible = false;
     this._boltGlowMesh.visible = false;
     this._scene.add(this._boltCoreMesh);
@@ -383,15 +413,20 @@ export class EtherCoil {
     // Branches (3 max)
     this._branches = [];
     for (let i = 0; i < 3; i++) {
-      const bm = new THREE.Mesh(dummyGeo.clone(), boltCoreMat);
+      const bm = new THREE.Mesh(dummyGeo.clone(), _sharedBoltCoreMat);
+      bm.onBeforeRender = () => {
+        _sharedBoltCoreMat.uniforms.uAge.value = bcu.uAge.value;
+      };
       bm.visible = false;
       this._scene.add(bm);
       this._branches.push(bm);
     }
 
     // Impact disc (world space, near ground)
-    const impactGeo = new THREE.CircleGeometry(9, 24);
-    this._impactMesh = new THREE.Mesh(impactGeo, impactMat);
+    this._impactMesh = new THREE.Mesh(new THREE.CircleGeometry(9, 24), _sharedImpactMat);
+    this._impactMesh.onBeforeRender = () => {
+      _sharedImpactMat.uniforms.uAge.value = iu.uAge.value;
+    };
     this._impactMesh.rotation.x = -Math.PI / 2;
     this._impactMesh.visible = false;
     this._scene.add(this._impactMesh);
@@ -711,7 +746,7 @@ export class EtherCoil {
     this._scene.remove(this._group);
     this._group.traverse(c => {
       if (c.isMesh) {
-        c.geometry.dispose();
+        if (!c.geometry.isShared) c.geometry.dispose();
         if (!c.material.isShared) c.material.dispose();
       }
     });

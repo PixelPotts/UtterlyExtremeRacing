@@ -2781,15 +2781,6 @@ function* addDecorations(si) {
     // Tesla coil — throttled internally to ~22-seg gap
     { const _ct = performance.now(); _spawnEtherCoil(si); const _cMs = performance.now()-_ct;
       if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
-    // On zone entry: kick off async shader compilation so GPU is ready before the
-    // player arrives (belt-and-suspenders in case traverseVisible missed anything).
-    if (_isEtherEntry) {
-      const _c0 = performance.now();
-      _DBG.log(`ETHER_COMPILE_START\tsi=${si}\tprogs=${renderer.info.programs?.length??0}`);
-      renderer.compileAsync(scene, cam).then(() => {
-        _DBG.log(`ETHER_COMPILE_DONE\tms=${(performance.now()-_c0).toFixed(0)}\tprogs=${renderer.info.programs?.length??0}`);
-      });
-    }
   }
   if (zoneTypes[si] === 'toxic') {
     _spawnRefinery(si);
