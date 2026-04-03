@@ -193,6 +193,107 @@ export class BuildingsSegment extends RaceSegment {
     }
     return arr;
   }
+
+  // ── Generator version: yields between the two expensive building spawns ──
+  // Used by addDecorations() so WorkQueue can budget-check between each spawn.
+  *buildMeshesIter(si, ctx) {
+    const { path, RW, SLEN, M, quad, spawnLightPost, spawnBuilding } = ctx;
+    const { pos, angle } = path[si];
+    const px = Math.cos(angle), pz = Math.sin(angle);
+    const fx = Math.sin(angle), fz = -Math.cos(angle);
+    const kOuter  = RW * 0.5 + 1.1;
+    const swOuter = kOuter + 4.5;
+    const p1  = path[si + 1]?.pos;
+    const a1  = path[si + 1]?.angle ?? angle;
+    const px1 = Math.cos(a1), pz1 = Math.sin(a1);
+    const arr = [];
+
+    // Pre-compute placements (cheap)
+    const MIN_GAP   = 1.0;
+    const halfRange = (SLEN - MIN_GAP) / 2;
+    const placements = {};
+    for (let s = -1; s <= 1; s += 2) {
+      let cursor = -halfRange;
+      while (cursor < halfRange) {
+        const raw     = BUILDING_DEFS[Math.random() * BUILDING_DEFS.length | 0];
+        const scaledD = halfRange * 2;
+        if (cursor + scaledD > halfRange) break;
+        const baseDef  = { ...raw, w: raw.w * 3, h: raw.h * 3, d: scaledD, easement: raw.easement * 3 };
+        const canEnter = baseDef.doorType !== 'garage' && baseDef.h <= 84;
+        const mo = ctx.missionOverride;
+        const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
+        const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
+        if (forceMission) { mo._applied = true; mo._side = s; }
+        const center = cursor + def.d * 0.5;
+        const depth  = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
+        placements[s] = { def, center, depth };
+        cursor += def.d + MIN_GAP;
+      }
+    }
+
+    // Sidewalks + light posts (cheap)
+    if (p1) {
+      const ry0 = pos.y, ry1 = p1.y;
+      for (let s = -1; s <= 1; s += 2) {
+        const sw = quad(
+          pos.x+px *s*kOuter,  pos.z+pz *s*kOuter,
+          pos.x+px *s*swOuter, pos.z+pz *s*swOuter,
+          p1.x+px1*s*kOuter,   p1.z+pz1*s*kOuter,
+          p1.x+px1*s*swOuter,  p1.z+pz1*s*swOuter,
+          ry0 + 0.46, ry1 + 0.46, M.sidewalk);
+        sw.userData.collidable = true;
+        arr.push(sw);
+        const pl = placements[s];
+        const buildFront = pl ? pl.depth - pl.def.w / 2 : swOuter + 20;
+        if (buildFront > swOuter + 0.2) {
+          const pavOuter = Math.min(buildFront, swOuter + 20);
+          const pv = quad(
+            pos.x+px *s*swOuter,  pos.z+pz *s*swOuter,
+            pos.x+px *s*pavOuter, pos.z+pz *s*pavOuter,
+            p1.x+px1*s*swOuter,   p1.z+pz1*s*swOuter,
+            p1.x+px1*s*pavOuter,  p1.z+pz1*s*pavOuter,
+            ry0 + 0.43, ry1 + 0.43, M.pavement);
+          pv.userData.collidable = true;
+          arr.push(pv);
+        }
+      }
+    }
+    for (let s = -1; s <= 1; s += 2) {
+      if ((si + (s > 0 ? 1 : 0)) % 2 === 0) {
+        arr.push(...spawnLightPost(pos.x + px*s*(kOuter + 0.7), pos.z + pz*s*(kOuter + 0.7), angle, s, si));
+      }
+    }
+
+    yield; // ── budget checkpoint: sidewalks+lights done ──────────────────────
+
+    // Left building (expensive ~3-4ms)
+    const _spawnSide = (s) => {
+      const pl = placements[s];
+      if (!pl) return;
+      const { def, center, depth } = pl;
+      const bg = spawnBuilding(def, s, pos.x + px*s*depth + fx*center, pos.z + pz*s*depth + fz*center, angle, pos.y);
+      bg.userData.isBuilding = true;
+      bg.userData.hw         = def.w / 2;
+      bg.userData.hd         = def.d / 2;
+      bg.userData.side       = s;
+      if (def.enterable) {
+        const dw = def.doorType === 'garage' ? def.w * 0.65 : (def.doorType === 'double' ? 2.0 : 1.0);
+        bg.userData.enterable = true;
+        bg.userData.doorHW    = dw / 2 + 0.4;
+        const mo = ctx.missionOverride;
+        if (mo?.stageId && s === mo._side) bg.userData.missionId = mo.stageId;
+      }
+      arr.push(bg);
+    };
+    _spawnSide(-1);
+
+    yield; // ── budget checkpoint: left building done ─────────────────────────
+
+    // Right building (expensive ~3-4ms)
+    _spawnSide(1);
+
+    return arr; // consumed by addDecorations via yield*
+  }
 }
 
 // ── Tunnel ────────────────────────────────────────────────────────────────────

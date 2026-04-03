@@ -1772,23 +1772,33 @@ function spawnTunnel(si) {
   box(mid.x+px*(tHW+wallT*.5), baseY+wallH*.5,        mid.z+pz*(tHW+wallT*.5), wallT, wallH, segLen);
   box(mid.x,                   baseY+wallH+wallT*.5,  mid.z,                   (tHW+wallT)*2, wallT, segLen);
 
-  // Light strips: ceiling + side walls, 30 cm wide, 200 cm center-to-center
+  // Light strips: ceiling + side walls using InstancedMesh (3 IMs vs 21 individual meshes)
+  // Per-segment geometries so normal dropDecorations disposal works correctly.
   const STRIP = 0.30, PERIOD = 2.00;
   const fw_x = Math.sin(angle), fw_z = -Math.cos(angle);
-  const addStrip = (gx, gy, gz, w, h, d) => {
-    const s = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), M.tunnelLight);
-    s.position.set(gx, gy, gz); s.rotation.y = ry;
-    scene.add(s); arr.push(s);
-  };
+  const ts = [];
+  for (let t = -(segLen * 0.5 - STRIP * 0.5); t < segLen * 0.5; t += PERIOD) ts.push(t);
+  const N = ts.length;
+  const ceilIM  = new THREE.InstancedMesh(new THREE.BoxGeometry((tHW - 0.15) * 2, 0.04, STRIP), M.tunnelLight, N);
+  const leftIM  = new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, wallH, STRIP), M.tunnelLight, N);
+  const rightIM = new THREE.InstancedMesh(new THREE.BoxGeometry(0.04, wallH, STRIP), M.tunnelLight, N);
+  const _tmp = new THREE.Object3D();
+  _tmp.rotation.y = ry;
   if (!tunnelStripPosts.has(si)) tunnelStripPosts.set(si, []);
-  for (let t = -(segLen*0.5 - STRIP*0.5); t < segLen*0.5; t += PERIOD) {
-    const sx = mid.x + t*fw_x, sz = mid.z + t*fw_z;
+  for (let i = 0; i < N; i++) {
+    const t  = ts[i];
+    const sx = mid.x + t * fw_x, sz = mid.z + t * fw_z;
     const ceilY = baseY + wallH - 0.02;
-    addStrip(sx, ceilY,              sz, (tHW-0.15)*2, 0.04, STRIP);
-    addStrip(sx - px*(tHW-0.02), baseY+wallH*0.5, sz - pz*(tHW-0.02), 0.04, wallH, STRIP);
-    addStrip(sx + px*(tHW-0.02), baseY+wallH*0.5, sz + pz*(tHW-0.02), 0.04, wallH, STRIP);
+    _tmp.position.set(sx, ceilY, sz);                                              _tmp.updateMatrix(); ceilIM.setMatrixAt(i, _tmp.matrix);
+    _tmp.position.set(sx - px*(tHW-0.02), baseY+wallH*0.5, sz - pz*(tHW-0.02));  _tmp.updateMatrix(); leftIM.setMatrixAt(i, _tmp.matrix);
+    _tmp.position.set(sx + px*(tHW-0.02), baseY+wallH*0.5, sz + pz*(tHW-0.02));  _tmp.updateMatrix(); rightIM.setMatrixAt(i, _tmp.matrix);
     tunnelStripPosts.get(si).push({ x: sx, y: ceilY, z: sz });
   }
+  ceilIM.instanceMatrix.needsUpdate = true;
+  leftIM.instanceMatrix.needsUpdate = true;
+  rightIM.instanceMatrix.needsUpdate = true;
+  scene.add(ceilIM, leftIM, rightIM);
+  arr.push(ceilIM, leftIM, rightIM);
   return arr;
 }
 
@@ -2627,7 +2637,10 @@ function spawnIntersectionLights(si, pos, angle) {
 // All values are references — safe to build once; path/scene grow in place.
 const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround };
 
-function addDecorations(si) {
+// Returns a generator iterator when the segment type has buildMeshesIter
+// (i.e. buildings), allowing WorkQueue to budget-check between building spawns.
+// For all other zone types it executes synchronously and returns undefined.
+function* addDecorations(si) {
   if (decorSeg[si] || !path[si]) return;
   const _dT0 = performance.now();
   const seg = _segTypes[zoneTypes[si]];
@@ -2640,7 +2653,19 @@ function addDecorations(si) {
   const is188 = si === BLDG_188_SEG && !mSpawn;
   if (is188) segCtx.missionOverride = { si, stageId: null, force: true, forceSide: -1, props: { enterable: false, doorColor: 0x111111, houseNumber: '188' }, _applied: false, _side: null };
 
-  decorSeg[si] = seg ? seg.buildMeshes(si, segCtx) : [];
+  if (seg?.buildMeshesIter) {
+    // Heavy zone (buildings): mark in-progress, spread spawning across frames
+    decorSeg[si] = [];
+    const meshes = yield* seg.buildMeshesIter(si, segCtx);
+    // Guard: segment was dropped while generator was suspended (very unlikely in practice)
+    if (!(si in decorSeg)) {
+      for (const o of (meshes ?? [])) { scene.remove(o); o.traverse(c => { if (c.isMesh) c.geometry.dispose(); }); }
+      return;
+    }
+    decorSeg[si] = meshes ?? [];
+  } else {
+    decorSeg[si] = seg ? seg.buildMeshes(si, segCtx) : [];
+  }
 
   // Register or requeue after buildMeshes
   if (mSpawn) {
@@ -2735,7 +2760,8 @@ function dropDecorations(si) {
   }
 }
 
-for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
+for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
+_decoQueue.flushAll();
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
 // ── EtherCoil light pool — pre-allocated so coil spawn/dispose never changes
@@ -4432,7 +4458,8 @@ function startLevel2() {
   for (let i = 0; i < path.length - 1; i++) buildSeg(i);
 
   // Initial decoration pass — mirrors L1 startup so water/poles appear immediately
-  for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
+  for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
+  _decoQueue.flushAll();
   decoFrontier = DECO_AHEAD + 6;
   // TEMP DISABLED: for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
   // pickupFrontier = DECO_AHEAD + 6;
