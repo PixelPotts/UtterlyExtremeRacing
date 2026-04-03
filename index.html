@@ -318,7 +318,7 @@ import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
 import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
 import { LEVEL1_MISSION } from './assets/missions/level1.js';
-// TEMP DISABLED: import { PickupManager } from './assets/pickups.js';
+import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
 
@@ -1406,7 +1406,7 @@ let starsMesh = null;
 
 // ── Zone system ────────────────────────────────────────
 const zoneTypes = [];
-let curZone = 'trees', zoneLeft = ZONE_MAX_SEGS;
+let curZone = 'toxic', zoneLeft = 77; // ~1000 m refinery opener (77 × 13 m)
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
@@ -2768,13 +2768,12 @@ let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 //    the scene's light count and never triggers a mid-game shader recompile.
 const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
 
-// TEMP DISABLED: PickupManager init
-// pickupManager = new PickupManager(scene, path, zoneTypes);
-// pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
-// pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
-// pickupManager.on('ammo',    () => { ... });
-// for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
-// pickupFrontier = DECO_AHEAD + 6;
+pickupManager = new PickupManager(scene, path, zoneTypes);
+pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
+pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
+pickupManager.on('ammo',    () => { if (activeWeapon) { activeWeapon.ammo = Math.min(activeWeapon.ammo + 15, activeWeapon.maxAmmo); } _updatePickupHUD(); });
+for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+pickupFrontier = DECO_AHEAD + 6;
 
 // ── Gun pickup setup — called at level start and on restart ────────────────
 function _setupGunPickup() {
@@ -3737,7 +3736,11 @@ function frame() {
         const si = decoFrontier++;
         _decoQueue.push(() => addDecorations(si));
       }
-      // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
+      while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
+        pickupManager.spawnForSeg(pickupFrontier, gunPickedUp);
+        pickupFrontier++;
+      }
+      pickupManager.dropSeg(player.seg - KEEP);
       dropSeg(player.seg - KEEP);
       dropDecorations(player.seg - KEEP);
     }
@@ -4180,7 +4183,7 @@ function frame() {
   }
 
   // ── Pickups + player grenades ─────────────────────────
-  // TEMP DISABLED: pickupManager?.update(dt, player.x, player.z);
+  pickupManager?.update(dt, player.x, player.z);
   if (_grCooldown > 0) _grCooldown -= dt;
   for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
     if (!_playerGrenades3D[i].update(dt)) {
@@ -4277,7 +4280,7 @@ function teardownL1() {
   scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh, _toxicSkyMesh);
   streetLightPool.forEach(l => scene.add(l));
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
-  // TEMP DISABLED: pickupManager?.restorePool(scene);
+  pickupManager?.restorePool(scene);
   _etherCoilLightPool.restoreTo(scene);
   _manholePool.restoreToScene(scene);
   _pedPool.restoreToScene(scene);
@@ -4286,7 +4289,7 @@ function teardownL1() {
   path.length = 0; zoneTypes.length = 0;
   pAng = 0; pTgt = 0; pTimer = 0; pCurve = 0.05;
   pHeightY = 0; pHeightVel = 0; pTargetY = 0; pPos.set(0, 0, 0);
-  curZone = 'trees'; zoneLeft = ZONE_MAX_SEGS; _citySegCount = 0;
+  curZone = 'toxic'; zoneLeft = 77; _citySegCount = 0; // refinery opens L1
   intersections.clear(); streetLightPosts.clear(); tunnelStripPosts.clear(); _collidables.clear();
   _wallBoxes.clear();
   for (const eb of _enterableBuildings) {
@@ -4339,7 +4342,7 @@ function teardownL1() {
   for (const g of _playerGrenades3D) g.dispose();
   _playerGrenades3D.length = 0;
   nitroCharges = 0; playerGrenades = 0; _nitroBurnTimer = 0; _grCooldown = 0;
-  // TEMP DISABLED: pickupManager?.reset();
+  pickupManager?.reset();
   pickupFrontier = 0;
   crushingTrees.length = 0; obstacles.length = 0;
   Object.keys(obstaclesBySeg).forEach(k => delete obstaclesBySeg[k]);
@@ -4461,8 +4464,8 @@ function startLevel2() {
   for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
   _decoQueue.flushAll();
   decoFrontier = DECO_AHEAD + 6;
-  // TEMP DISABLED: for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
-  // pickupFrontier = DECO_AHEAD + 6;
+  for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, gunPickedUp);
+  pickupFrontier = DECO_AHEAD + 6;
 
   // Player — slightly higher top speed for the open neon road
   player = new PlayerVehicle(scene, path, {
@@ -4600,7 +4603,11 @@ function frameL2() {
       const si = decoFrontier++;
       _decoQueue.push(() => addDecorations(si));
     }
-    // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
+    while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
+      pickupManager.spawnForSeg(pickupFrontier, gunPickedUp);
+      pickupFrontier++;
+    }
+    pickupManager.dropSeg(player.seg - KEEP);
     dropSeg(player.seg - KEEP);
     dropDecorations(player.seg - KEEP);
   }
@@ -4662,7 +4669,7 @@ function frameL2() {
   }
 
   // ── Pickups + player grenades (L2) ───────────────────
-  // TEMP DISABLED: pickupManager?.update(dt, player.x, player.z);
+  pickupManager?.update(dt, player.x, player.z);
   if (_grCooldown > 0) _grCooldown -= dt;
   for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
     if (!_playerGrenades3D[i].update(dt)) {
