@@ -22,11 +22,13 @@ const _winFrameMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
 //   group.position.set(-side * (hw + 0.01), -bldgH/2 + dh/2, 0)
 //   group.rotation.y = side * (-Math.PI / 2)
 export class Door {
-  constructor({ w, h, doorType = 'single', enterable = false }) {
+  constructor({ w, h, doorType = 'single', enterable = false, doorColor = null }) {
     const group = new THREE.Group();
-    const mat = enterable
-      ? _panelMats.enterable
-      : (_panelMats[doorType] ?? _panelMats.single);
+    const mat = doorColor != null
+      ? new THREE.MeshLambertMaterial({ color: doorColor, side: THREE.DoubleSide })
+      : (enterable
+          ? _panelMats.enterable
+          : (_panelMats[doorType] ?? _panelMats.single));
 
     // Panel
     const panel = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);

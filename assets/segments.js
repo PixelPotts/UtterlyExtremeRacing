@@ -121,7 +121,7 @@ export class BuildingsSegment extends RaceSegment {
         const canEnter = baseDef.doorType !== 'garage' && baseDef.h <= 84;
         // Mission system owns all enterable buildings — no random enterable spawning.
         const mo = ctx.missionOverride;
-        const forceMission = mo && !mo._applied && canEnter;
+        const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
         const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
         if (forceMission) { mo._applied = true; mo._side = s; }
         const center = cursor + def.d * 0.5;

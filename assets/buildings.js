@@ -226,7 +226,7 @@ export class Building {
       const dw = isGarage ? w * 0.65 : (isDbl ? 2.0 : 1.0);
       const dh = isGarage ? Math.min(h * 0.80, 4.5) : 2.3;
 
-      const doorObj = new Door({ w: dw, h: dh, doorType, enterable: !!def.enterable });
+      const doorObj = new Door({ w: dw, h: dh, doorType, enterable: !!def.enterable, doorColor: def.doorColor ?? null });
       doorObj.group.position.set(-side * (w / 2 + 0.01), -h / 2 + dh / 2, 0);
       doorObj.group.rotation.y = side * (-Math.PI / 2);
       group.add(doorObj.group);
@@ -256,6 +256,27 @@ export class Building {
         if (transomH > 0.1)
           mkWallPanel(dw, transomH, 0, -h / 2 + dh + transomH / 2);
       }
+    }
+
+    // ── House number plaque ───────────────────────────────────────────────────
+    if (def.houseNumber) {
+      const cvs = document.createElement('canvas');
+      cvs.width = 128; cvs.height = 64;
+      const ctx2 = cvs.getContext('2d');
+      ctx2.fillStyle = '#D8D0C0';
+      ctx2.fillRect(0, 0, 128, 64);
+      ctx2.strokeStyle = '#888'; ctx2.lineWidth = 4;
+      ctx2.strokeRect(4, 4, 120, 56);
+      ctx2.fillStyle = '#111';
+      ctx2.font = 'bold 36px Arial, sans-serif';
+      ctx2.textAlign = 'center'; ctx2.textBaseline = 'middle';
+      ctx2.fillText(def.houseNumber, 64, 32);
+      const plaqueTex = new THREE.CanvasTexture(cvs);
+      const plaqueMat = new THREE.MeshLambertMaterial({ map: plaqueTex, side: THREE.DoubleSide });
+      const plaque = new THREE.Mesh(new THREE.PlaneGeometry(0.65, 0.32), plaqueMat);
+      plaque.position.set(-side * (w / 2 + 0.03), -h / 2 + 2.1, 0.85);
+      plaque.rotation.y = side * (-Math.PI / 2);
+      group.add(plaque);
     }
 
     // ── Awning (storefronts and short commercial buildings) ───────────────────

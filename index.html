@@ -1462,6 +1462,10 @@ function genPt() {
 
 for (let i = 0; i < AHEA + KEEP + 30; i++) genPt();
 
+// ── Fixed building: 188 — always in a buildings segment at si=42 ────────────
+const BLDG_188_SEG = 42;
+zoneTypes[BLDG_188_SEG] = 'buildings';
+
 // ── Road Mesh ──────────────────────────────────────────
 const segs = {};
 
@@ -2588,6 +2592,10 @@ function addDecorations(si) {
   const mSpawn = MissionSystem.drainSpawns(si);
   if (mSpawn) segCtx.missionOverride = { si, stageId: mSpawn.stageId, props: mSpawn.props, _applied: false, _side: null };
 
+  // Fixed 188 building — always on the left side of segment 42
+  const is188 = si === BLDG_188_SEG && !mSpawn;
+  if (is188) segCtx.missionOverride = { si, stageId: null, force: true, forceSide: -1, props: { enterable: false, doorColor: 0x111111, houseNumber: '188' }, _applied: false, _side: null };
+
   decorSeg[si] = seg ? seg.buildMeshes(si, segCtx) : [];
 
   // Register or requeue after buildMeshes
@@ -2604,6 +2612,7 @@ function addDecorations(si) {
     }
     delete segCtx.missionOverride;
   }
+  if (is188) delete segCtx.missionOverride;
   // Sidewalk / pavement quads tagged collidable in buildMeshes
   const taggedC = decorSeg[si].filter(m => m?.userData?.collidable);
   if (taggedC.length) addCollidable(si, ...taggedC);
