@@ -311,6 +311,7 @@ import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
+import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
 import { Sky } from './assets/sky.js';
@@ -1316,6 +1317,7 @@ scene.add(tunnelFill);
     ...Object.values(M).filter(Boolean),
     ...BLDG_MATS,
     TRIM_MAT,
+    ...SIGN_WARMUP_MATS,     // neon signs: 30 MeshStandardMaterial variants (map+emissiveMap)
     ...WARMUP_MATS,          // obstacles: manhole, neon cube, nozzle, oil spill shader
     ...RM_WARMUP_MATS,       // rock monster: rock, snow, eye
     ...REF_WARMUP_MATS,      // refinery: steel, rust, concrete, tank, pipe, plank, yellow, black

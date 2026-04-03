@@ -136,6 +136,9 @@ function makeSignTexture(text, color, style) {
 }
 
 // ── Texture + material cache (shared across all buildings) ────────────────────
+// Pre-generated at module load time so makeSignTexture's expensive canvas
+// shadow-blur operations never run during gameplay (first buildings segment
+// was causing ~1600ms freeze from lazy sign creation).
 const _texCache = new Map();
 const _matCache = new Map();
 
@@ -155,6 +158,11 @@ function getSignMaterial(cfg) {
   _matCache.set(cfg, mat);
   return mat;
 }
+
+// Pre-populate all 30 sign textures+materials now (module load = page init,
+// not gameplay), and export them for shader warmup in index.html.
+for (const cfg of SIGN_CONFIGS) getSignMaterial(cfg);
+export const SIGN_WARMUP_MATS = [..._matCache.values()];
 
 // ── spawnSign ─────────────────────────────────────────────────────────────────
 // Adds a sign plane + backing box + glow light to the building group.
