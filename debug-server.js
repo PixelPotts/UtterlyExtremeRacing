@@ -2,7 +2,7 @@
 // Game POSTs log lines to http://localhost:9999/log → written to debug.log
 const http = require('http');
 const fs   = require('fs');
-const LOG  = './debug.log';
+const LOG  = './pinkcircledebug.log';
 
 fs.writeFileSync(LOG, `=== session ${new Date().toISOString()} ===\n`);
 console.log(`Logging to ${LOG}`);

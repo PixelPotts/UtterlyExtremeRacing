@@ -368,9 +368,9 @@ const SPD        = 0.10; // segments/frame base
 const ACCEL = SPD * 2.2;  // 0 → max in ~0.45s
 const BRAKE = SPD * 5.0;  // full stop in ~0.2s
 const DRAG  = SPD * 0.6;  // coast deceleration
-const AHEA       = 130;  // road segments generated ahead
-const DECO_AHEAD = 65;   // decoration segments built ahead (less than AHEA)
-const KEEP       = 28;   // segments behind
+const AHEA       = 30;   // road segments generated ahead  [DBG reduced from 130]
+const DECO_AHEAD = 15;   // decoration segments built ahead [DBG reduced from 65]
+const KEEP       = 10;   // segments behind                 [DBG reduced from 28]
 const ZONE_MIN_SEGS = 30;  // ~390 m min per zone
 const ZONE_MAX_SEGS = 50;  // ~650 m max per zone
 
@@ -384,6 +384,38 @@ const _DBG = (() => {
   return { log };
 })();
 let _dbgLastProg = 0;
+let _dbgLastScene = 0;   // scene.children.length — logged when it changes
+let _dbgFrameN   = 0;    // frame counter for periodic ambient log
+
+// ── Pink/orange debug rings — show deco frontier + drop frontier ───────────
+// Created lazily after scene exists (see _dbgInitRings below).
+let _dbgRingDeco = null; // pink  — decoFrontier (where next seg will decorate)
+let _dbgRingDrop = null; // orange — drop frontier (player.seg - KEEP)
+function _dbgInitRings() {
+  const ringGeo = new THREE.RingGeometry(4, 7, 40);
+  ringGeo.rotateX(-Math.PI / 2);
+  _dbgRingDeco = new THREE.Mesh(ringGeo,
+    new THREE.MeshBasicMaterial({ color: 0xff00cc, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
+  _dbgRingDeco.frustumCulled = false;
+  _dbgRingDeco.renderOrder   = 999;
+  scene.add(_dbgRingDeco);
+
+  const ringGeo2 = new THREE.RingGeometry(3, 5.5, 40);
+  ringGeo2.rotateX(-Math.PI / 2);
+  _dbgRingDrop = new THREE.Mesh(ringGeo2,
+    new THREE.MeshBasicMaterial({ color: 0xff8800, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.75 }));
+  _dbgRingDrop.frustumCulled = false;
+  _dbgRingDrop.renderOrder   = 999;
+  scene.add(_dbgRingDrop);
+}
+function _dbgUpdateRings() {
+  const dp = path[decoFrontier]?.pos;
+  if (dp && _dbgRingDeco) _dbgRingDeco.position.set(dp.x, dp.y + 0.5, dp.z);
+  const dropSi = (player?.seg ?? 0) - KEEP;
+  const drp = path[dropSi]?.pos;
+  if (drp && _dbgRingDrop) _dbgRingDrop.position.set(drp.x, drp.y + 0.5, drp.z);
+}
+
 const LANES      = [-10.5, -3.5, 3.5, 10.5]; // lane center offsets (perpendicular)
 const BOOST_DUR  = 1.5;  // seconds of launch boost
 
@@ -1543,6 +1575,7 @@ function buildKerb(ix0, iz0, ox0, oz0, ix1, iz1, ox1, oz1, mat, { N=5, BASE=0.42
 
 function buildSeg(i) {
   if (segs[i] || !path[i+1]) return;
+  const _bsT0 = performance.now();
   const { pos: p0, angle: a0 } = path[i];
   const { pos: p1, angle: a1 } = path[i+1];
   const px0=Math.cos(a0), pz0=Math.sin(a0);
@@ -1573,6 +1606,8 @@ function buildSeg(i) {
   }
   segs[i] = [road, kL, kR, dash].filter(Boolean);
   if (_seg.roadMat !== 'splitGap') addCollidable(i, road, kL, kR);
+  const _bsMs = performance.now() - _bsT0;
+  if (_bsMs > 1) _DBG.log(`BUILD_SEG\tsi=${i}\tzone=${zoneTypes[i]??'?'}\tms=${_bsMs.toFixed(2)}\tmeshes=${segs[i].length}\tscene=${scene.children.length}`);
 }
 
 function dropSeg(i) {
@@ -1582,7 +1617,7 @@ function dropSeg(i) {
   delete segs[i];
 }
 
-for (let i = 0; i < path.length-1; i++) buildSeg(i);
+{ const _t0 = performance.now(); for (let i = 0; i < path.length-1; i++) buildSeg(i); _DBG.log(`INIT_BUILDSEG_L1\tsegs=${path.length-1}\tms=${(performance.now()-_t0).toFixed(1)}\tscene=${scene.children.length}`); }
 
 // ── Decorations ────────────────────────────────────────
 const decorSeg     = {};
@@ -2498,6 +2533,8 @@ function _spawnRefinery(si) {
   if (!path[si]) return;
   if (si - _lastRefinerySeg < 22) return;
   _lastRefinerySeg = si;
+  const _rfT0 = performance.now();
+  const _rfSceneBefore = scene.children.length;
   const { pos, angle } = path[si];
   const px = Math.cos(angle), pz = Math.sin(angle);
   for (const side of [-1, 1]) {
@@ -2511,6 +2548,10 @@ function _spawnRefinery(si) {
     (obstaclesBySeg[si] ??= []).push(ref);
     obstacles.push(ref);
   }
+  const _rfMs = performance.now() - _rfT0;
+  const _rfAdded = scene.children.length - _rfSceneBefore;
+  const _rfLights = scene.children.filter(c => c.isLight).length;
+  _DBG.log(`REFINERY\tsi=${si}\tms=${_rfMs.toFixed(2)}\tadded=${_rfAdded}\tscene=${scene.children.length}\tlights=${_rfLights}`);
 }
 
 function _spawnOilSpray(si) {
@@ -2761,12 +2802,14 @@ function dropDecorations(si) {
 }
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
-_decoQueue.flushAll();
+_DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
+{ const _fa0 = performance.now(); _decoQueue.flushAll(); _DBG.log(`FLUSH_ALL_END_L1\tms=${(performance.now()-_fa0).toFixed(1)}\tscene=${scene.children.length}\tlights=${scene.children.filter(c=>c.isLight).length}`); }
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 
 // ── EtherCoil light pool — pre-allocated so coil spawn/dispose never changes
 //    the scene's light count and never triggers a mid-game shader recompile.
 const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
+_dbgInitRings();
 
 pickupManager = new PickupManager(scene, path, zoneTypes);
 pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
@@ -4193,7 +4236,8 @@ function frame() {
   }
 
   // ── Decoration work queue — drain up to 3 ms of pending segment builds ───
-  _decoQueue.flush(3);
+  { const _fqT0 = performance.now(); _decoQueue.flush(3); const _fqMs = performance.now() - _fqT0;
+    if (_fqMs > 3) _DBG.log(`FLUSH_OVER_BUDGET_L1\tms=${_fqMs.toFixed(2)}\tpending=${_decoQueue.pending}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); }
 
   // ── Obstacle updates ─────────────────────────────────
   for (const obs of obstacles) obs.update(dt, player.x, player.z, player.seg);
@@ -4243,10 +4287,15 @@ function frame() {
     }
   }
 
+  _dbgUpdateRings();
   { const _fms = performance.now() - _ft0;
-    const _pc = renderer.info.programs?.length ?? 0;
+    const _pc  = renderer.info.programs?.length ?? 0;
+    const _sc  = scene.children.length;
+    _dbgFrameN++;
     if (_pc !== _dbgLastProg) { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
-    if (_fms > 16 && raceStarted) _DBG.log(`STUTTER_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}`); }
+    if (_sc !== _dbgLastScene) { _DBG.log(`SCENE_SIZE\tchildren=${_sc}\tdelta=${_sc-_dbgLastScene}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastScene = _sc; }
+    if (_fms > 8 && raceStarted) _DBG.log(`STUTTER_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`);
+    if (_dbgFrameN % 60 === 0 && raceStarted) _DBG.log(`FRAME_L1\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`); }
   etherComposer.render(scene, cam, player.x, player.z, dt);
 }
 
@@ -4458,11 +4507,12 @@ function startLevel2() {
 
   // Generate initial path with hills + curves
   for (let i = 0; i < AHEA + KEEP + 30; i++) genPtL2();
-  for (let i = 0; i < path.length - 1; i++) buildSeg(i);
+  { const _t0 = performance.now(); for (let i = 0; i < path.length - 1; i++) buildSeg(i); _DBG.log(`INIT_BUILDSEG_L2\tsegs=${path.length-1}\tms=${(performance.now()-_t0).toFixed(1)}\tscene=${scene.children.length}`); }
 
   // Initial decoration pass — mirrors L1 startup so water/poles appear immediately
   for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
-  _decoQueue.flushAll();
+  _DBG.log(`FLUSH_ALL_START_L2\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
+  { const _fa0 = performance.now(); _decoQueue.flushAll(); _DBG.log(`FLUSH_ALL_END_L2\tms=${(performance.now()-_fa0).toFixed(1)}\tscene=${scene.children.length}\tlights=${scene.children.filter(c=>c.isLight).length}`); }
   decoFrontier = DECO_AHEAD + 6;
   for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, gunPickedUp);
   pickupFrontier = DECO_AHEAD + 6;
@@ -4613,7 +4663,8 @@ function frameL2() {
   }
 
   // ── Decoration work queue (L2) ────────────────────────
-  _decoQueue.flush(3);
+  { const _fqT0 = performance.now(); _decoQueue.flush(3); const _fqMs = performance.now() - _fqT0;
+    if (_fqMs > 3) _DBG.log(`FLUSH_OVER_BUDGET_L2\tms=${_fqMs.toFixed(2)}\tpending=${_decoQueue.pending}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); }
 
   // Animate black water — scroll the normal-map UV offset
   _waterUniforms.uTime.value += dt;
@@ -4710,10 +4761,15 @@ function frameL2() {
   _zoneHudEl.textContent = `L${currentLevel}  ${_ZONE_LABEL[zoneTypes[player?.seg ?? 0]] ?? ''}`;
   if (!walkMode) drawGauges();
   Minimap.update(path, player.seg, player.x, player.z, player.angle);
+  _dbgUpdateRings();
   { const _fms = performance.now() - _ft0;
-    const _pc = renderer.info.programs?.length ?? 0;
+    const _pc  = renderer.info.programs?.length ?? 0;
+    const _sc  = scene.children.length;
+    _dbgFrameN++;
     if (_pc !== _dbgLastProg) { _DBG.log(`SHADER_PROG\tcount=${_pc}\twas=${_dbgLastProg}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastProg = _pc; }
-    if (_fms > 16) _DBG.log(`STUTTER_L2\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}`); }
+    if (_sc !== _dbgLastScene) { _DBG.log(`SCENE_SIZE\tchildren=${_sc}\tdelta=${_sc-_dbgLastScene}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}`); _dbgLastScene = _sc; }
+    if (_fms > 8) _DBG.log(`STUTTER_L2\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`);
+    if (_dbgFrameN % 60 === 0) _DBG.log(`FRAME_L2\tms=${_fms.toFixed(1)}\tseg=${player?.seg}\tzone=${zoneTypes[player?.seg]??'?'}\tprogs=${_pc}\tscene=${_sc}\tqueue=${_decoQueue.pending}\tdeco=${decoFrontier}\tpick=${pickupFrontier}`); }
   renderer.render(scene, cam);
 }
 </script>
