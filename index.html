@@ -3340,7 +3340,7 @@ function startGame() {
 
   const _showCompile = setTimeout(() => { if (sta) sta.textContent = 'COMPILING SHADERS...'; }, 500);
   etherComposer.warmupCompile(renderer, scene, cam).then(() => {
-    _dummyBt.dispose();
+    // TEMP DISABLED: _dummyBt.dispose();
     _dummyCoil.dispose();
     scene.remove(_dummyEtherRoad, _dummyEtherGround);
     _dummyEtherRoad.geometry.dispose();
