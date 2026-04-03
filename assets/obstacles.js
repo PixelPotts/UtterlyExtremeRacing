@@ -19,6 +19,21 @@ export class Obstacle {
   }
 }
 
+// ── Shared geometry singletons — created once, reused by all pool instances ──
+// Manhole geometry
+const _MH_COVER_GEO = new THREE.CylinderGeometry(0.50, 0.50, 0.07, 16);
+const _MH_RING_GEO  = new THREE.TorusGeometry(0.46, 0.055, 6, 16);
+const _MH_HOLE_GEO  = new THREE.CylinderGeometry(0.44, 0.44, 0.04, 16);
+// Pedestrian geometry
+const _PED_HEAD_GEO  = new THREE.SphereGeometry(0.18, 7, 6);
+const _PED_TORSO_GEO = new THREE.CylinderGeometry(0.13, 0.16, 0.52, 7);
+const _PED_LEG_GEO   = new THREE.CylinderGeometry(0.065, 0.050, 0.72, 6);
+const _PED_SHOE_GEO  = new THREE.BoxGeometry(0.15, 0.09, 0.26);
+const _PED_ARM_GEO   = new THREE.CylinderGeometry(0.055, 0.042, 0.40, 5);
+[_MH_COVER_GEO, _MH_RING_GEO, _MH_HOLE_GEO,
+ _PED_HEAD_GEO, _PED_TORSO_GEO, _PED_LEG_GEO, _PED_SHOE_GEO, _PED_ARM_GEO,
+].forEach(g => { g.userData.sharedGeo = true; });
+
 // ── Manhole Cover ──────────────────────────────────────────────────────────
 const _mhMat     = new THREE.MeshLambertMaterial({ color: 0x484848 });
 const _mhRingMat = new THREE.MeshLambertMaterial({ color: 0x2E2E2E });
@@ -36,24 +51,45 @@ export class ManholeObstacle extends Obstacle {
     this._hoverTimer = 0;
     this._steam      = [];
 
-    const cover = new THREE.Mesh(new THREE.CylinderGeometry(0.50, 0.50, 0.07, 16), _mhMat);
+    const cover = new THREE.Mesh(_MH_COVER_GEO, _mhMat);
     cover.position.set(x, pathY + 0.47, z);
     cover.castShadow = cover.receiveShadow = true;
     scene.add(cover);
 
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.46, 0.055, 6, 16), _mhRingMat);
+    const ring = new THREE.Mesh(_MH_RING_GEO, _mhRingMat);
     ring.rotation.x = Math.PI / 2;
     ring.position.set(x, pathY + 0.50, z);
     scene.add(ring);
 
-    const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.44, 0.44, 0.04, 16), _mhHoleMat);
+    const hole = new THREE.Mesh(_MH_HOLE_GEO, _mhHoleMat);
     hole.position.set(x, pathY + 0.43, z);
     scene.add(hole);
 
     this.cover  = cover;
     this.ring   = ring;
     this.hole   = hole;
-    this.meshes = [cover, ring, hole];
+    this.meshes      = [cover, ring, hole];
+    this._sceneMeshes = [cover, ring, hole]; // for ObjectPool.restoreToScene
+  }
+
+  /** Reposition a pool instance for a new spawn — zero allocations. */
+  resetAt(si, x, z, pathY, explosive, onBlast) {
+    this.si          = si;
+    this.x           = x;
+    this.z           = z;
+    this._pathY      = pathY;
+    this.explosive   = explosive;
+    this.onBlast     = onBlast;
+    this.triggered   = false;
+    this._phase      = null;
+    this._vy         = 0;
+    this._hoverTimer = 0;
+    this.cover.position.set(x, pathY + 0.47, z);
+    this.cover.rotation.set(0, 0, 0);
+    this.ring.position.set(x, pathY + 0.50, z);
+    this.hole.position.set(x, pathY + 0.43, z);
+    this.meshes = [this.cover, this.ring, this.hole];
+    return this;
   }
 
   _blast() {
@@ -136,19 +172,20 @@ export class ManholeObstacle extends Obstacle {
   }
 
   dispose() {
+    // Pool-managed: park off-screen via _poolRelease, don't destroy geometry.
+    if (this._poolRelease) { this._poolRelease(); return; }
+    // Non-pooled: full teardown.
     for (const sp of this._steam) {
       this.scene.remove(sp.mesh);
       sp.mesh.geometry.dispose();
       sp.mesh.material.dispose();
     }
     this._steam = [];
-    // Cover only if still in scene (not yet flown away and cleaned up)
     if (this._phase === null || this._phase === 'rising' || this._phase === 'hovering') {
       this.scene.remove(this.cover);
-      this.cover.geometry.dispose();
     }
-    this.scene.remove(this.ring); this.ring.geometry.dispose();
-    this.scene.remove(this.hole); this.hole.geometry.dispose();
+    this.scene.remove(this.ring);
+    this.scene.remove(this.hole);
     this.meshes = [];
   }
 }
@@ -278,48 +315,75 @@ export class PedestrianObstacle extends Obstacle {
     const shoeMat = new THREE.MeshLambertMaterial({ color: _pick(_SHOES) });
     this._mats = [skinMat, topMat, pantMat, shoeMat];
 
-    // Head – sphere
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.18, 7, 6), skinMat);
+    // Head – sphere (shared geometry)
+    const head = new THREE.Mesh(_PED_HEAD_GEO, skinMat);
     head.position.y = 1.62;
     root.add(head);
 
-    // Torso – round cylinder, slightly tapered
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 0.52, 7), topMat);
+    // Torso – round cylinder (shared geometry)
+    const torso = new THREE.Mesh(_PED_TORSO_GEO, topMat);
     torso.position.y = 1.10;
     root.add(torso);
 
-    // Legs – pivot group at hip, so rotation.x swings the whole leg+shoe
+    // Legs – pivot group at hip
     this._lHip = new THREE.Group(); this._lHip.position.set(-0.09, 0.84, 0);
     this._rHip = new THREE.Group(); this._rHip.position.set( 0.09, 0.84, 0);
 
     const mkLeg = () => {
       const g   = new THREE.Group();
-      const cyl = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.050, 0.72, 6), pantMat);
-      cyl.position.y = -0.36;               // hang below hip pivot
+      const cyl = new THREE.Mesh(_PED_LEG_GEO, pantMat);
+      cyl.position.y = -0.36;
       g.add(cyl);
-      const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.09, 0.26), shoeMat);
-      shoe.position.set(0, -0.76, 0.04);    // block shoe below leg, slight toe-forward
+      const shoe = new THREE.Mesh(_PED_SHOE_GEO, shoeMat);
+      shoe.position.set(0, -0.76, 0.04);
       g.add(shoe);
       return g;
     };
     this._lHip.add(mkLeg()); this._rHip.add(mkLeg());
     root.add(this._lHip, this._rHip);
 
-    // Arms – pivot at shoulder, round cylinder
+    // Arms – pivot at shoulder (shared geometry)
     this._lShoulder = new THREE.Group(); this._lShoulder.position.set(-0.20, 1.35, 0);
     this._rShoulder = new THREE.Group(); this._rShoulder.position.set( 0.20, 1.35, 0);
 
     const mkArm = () => {
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.042, 0.40, 5), topMat);
+      const arm = new THREE.Mesh(_PED_ARM_GEO, topMat);
       arm.position.y = -0.20;
       return arm;
     };
     this._lShoulder.add(mkArm()); this._rShoulder.add(mkArm());
     root.add(this._lShoulder, this._rShoulder);
 
-    this._root = root;
+    this._root        = root;
+    this._sceneMeshes = [root]; // for ObjectPool.restoreToScene
     scene.add(root);
     this.meshes = [root];
+  }
+
+  /** Reposition a pool instance for a new spawn — re-randomizes colors, zero allocs. */
+  resetAt(si, x, z, walkDir, roadAngle, pathY) {
+    this.si       = si;
+    this.x        = x;
+    this.z        = z;
+    this._pathY   = pathY;
+    this._fx      = Math.sin(roadAngle) * walkDir;
+    this._fz      = -Math.cos(roadAngle) * walkDir;
+    this._speed   = 0.7 + Math.random() * 0.8;
+    this._phase   = Math.random() * Math.PI * 2;
+    this._wx      = x;
+    this._wz      = z;
+    this._ragdoll = false;
+    this._vx = 0; this._vy = 0; this._vz = 0;
+    // Re-randomize appearance on existing materials (color.setHex = no new alloc)
+    this._mats[0].color.setHex(_pick(_SKIN));
+    this._mats[1].color.setHex(_pick(_TOPS));
+    this._mats[2].color.setHex(_pick(_PANTS));
+    this._mats[3].color.setHex(_pick(_SHOES));
+    this._root.position.set(x, pathY + 0.46, z);
+    this._root.rotation.set(0, Math.atan2(this._fx, this._fz), 0);
+    this._root.scale.setScalar(0.86 + Math.random() * 0.28);
+    this.meshes = [this._root];
+    return this;
   }
 
   ragdoll(speed, dirX, dirZ) {
@@ -370,7 +434,9 @@ export class PedestrianObstacle extends Obstacle {
   }
 
   dispose() {
-    this._root.traverse(c => { if (c.isMesh) c.geometry.dispose(); });
+    // Pool-managed: park off-screen via _poolRelease, keep geometry + materials.
+    if (this._poolRelease) { this._poolRelease(); return; }
+    // Non-pooled: full teardown (geometry is shared — skip geo dispose).
     for (const m of this._mats) m.dispose();
     this.scene.remove(this._root);
     this.meshes = [];
@@ -519,5 +585,20 @@ export class OilSprayObstacle extends Obstacle {
   }
 }
 
-// Materials that need shader warmup — kept resident by an invisible mesh in the main scene.
-export const WARMUP_MATS = [_mhMat, _mhRingMat, _mhHoleMat, _neonBodyMat];
+// ── Warmup material for OilSpill shader ─────────────────────────────────────
+// Identical source to OilSpillObstacle's ShaderMaterial — Three.js reuses the
+// compiled GL program for all instances with matching vertex/fragment source.
+const _oilWarmupMat = new THREE.ShaderMaterial({
+  vertexShader: OIL_VS, fragmentShader: OIL_FS,
+  uniforms: { uTime: { value: 0 }, uSunDir: { value: _sunDir } },
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+});
+
+// Materials that need shader warmup — kept resident by invisible meshes.
+// Add any new obstacle material here to prevent mid-game shader compile spikes.
+export const WARMUP_MATS = [
+  _mhMat, _mhRingMat, _mhHoleMat,
+  _neonBodyMat, _neonEdgeMat,
+  _nozzleMat, _nozzleTipOff,
+  _oilWarmupMat,
+];

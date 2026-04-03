@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EnemyMovement } from './enemy.js';
+import { AssetRegistry } from './assetRegistry.js';
+
+// Register GLB at import time — loading screen will pre-load it via AssetRegistry.preloadAll().
+AssetRegistry.register('killbot1', 'assets/geometry/killbot1.glb');
 
 // ── KillBot1 ───────────────────────────────────────────────────────────────────
 // Positions on a sphere centred on the player — always in the FORWARD hemisphere,
@@ -11,17 +15,9 @@ const _LASER_CORE_GEO = new THREE.CylinderGeometry(0.125, 0.125, 1, 6);
 const _LASER_GLOW_GEO = new THREE.CylinderGeometry(1.1, 1.1, 1, 8);
 
 // ── Preload cache ─────────────────────────────────────────────────────────────
-let _cachedGltf = null;
-export function preloadKillBot1(onProgress) {
-  return new Promise((resolve, reject) => {
-    if (_cachedGltf) { resolve(_cachedGltf); return; }
-    new GLTFLoader().load(
-      'assets/geometry/killbot1.glb',
-      gltf => { _cachedGltf = gltf; resolve(gltf); },
-      onProgress,
-      reject
-    );
-  });
+// Kept for backward-compat; actual preload is handled by AssetRegistry.preloadAll().
+export function preloadKillBot1() {
+  return Promise.resolve(AssetRegistry.get('killbot1'));
 }
 
 export class KillBot1 extends EnemyMovement {
@@ -76,9 +72,11 @@ export class KillBot1 extends EnemyMovement {
       this._model = model;
     };
 
-    if (_cachedGltf) {
-      apply(_cachedGltf);
+    const cached = AssetRegistry.get('killbot1');
+    if (cached) {
+      apply(cached);
     } else {
+      // Fallback: load on-demand if preload was skipped (should not happen in normal flow).
       new GLTFLoader().load('assets/geometry/killbot1.glb', apply);
     }
   }

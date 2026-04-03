@@ -9,6 +9,8 @@ const _MAT_SNOW = new THREE.MeshPhongMaterial({
 });
 const _MAT_EYE = new THREE.MeshBasicMaterial({ color: 0xff2200 });
 
+export const WARMUP_MATS = [_MAT_ROCK, _MAT_SNOW, _MAT_EYE];
+
 // Convert indexed geometry to non-indexed then randomly jitter every vertex.
 // flatShading on the material makes each face appear as a separate rocky facet.
 function _jitter(geo, factor = 0.20) {

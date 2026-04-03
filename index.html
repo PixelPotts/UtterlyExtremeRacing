@@ -297,16 +297,19 @@ import { Weapon }                            from './assets/weapons.js';
 import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, OilSprayObstacle, WARMUP_MATS } from './assets/obstacles.js';
 // TEMP DISABLED: import { BoxTruck, BT_WARMUP_MATS }  from './assets/boxtruck.js';
 import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
+import { AssetRegistry } from './assets/assetRegistry.js';
+import { ObjectPool }    from './assets/objectPool.js';
+import { WorkQueue }     from './assets/workQueue.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
 import { SEGMENT_TYPES_L2 }                                    from './assets/segments_l2.js';
 import { NeonLightPool }                                        from './assets/neonlightpool.js';
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
-import { RockMonster }    from './assets/rockmonster.js';
+import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmonster.js';
 import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
-import { Refinery }     from './assets/refinery.js';
+import { Refinery, WARMUP_MATS as REF_WARMUP_MATS }     from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
@@ -1281,7 +1284,9 @@ scene.add(tunnelFill);
     ...Object.values(M).filter(Boolean),
     ...BLDG_MATS,
     TRIM_MAT,
-    ...WARMUP_MATS,
+    ...WARMUP_MATS,          // obstacles: manhole, neon cube, nozzle, oil spill shader
+    ...RM_WARMUP_MATS,       // rock monster: rock, snow, eye
+    ...REF_WARMUP_MATS,      // refinery: steel, rust, concrete, tank, pipe, plank, yellow, black
     // TEMP DISABLED: ...BT_WARMUP_MATS,
   ];
   for (const mat of _wMats) {
@@ -1294,8 +1299,13 @@ scene.add(tunnelFill);
   }
 }
 
+// ── GLTF pre-load registration ──────────────────────────
+// Register here; killbot1.js registers itself at import time.
+AssetRegistry.register('gun', 'assets/geometry/gun.glb');
+
 // ── Loading screen progress ─────────────────────────────
-const _TOTAL = 13;  // 9 textures + 4 audio
+// _TOTAL is dynamic: base assets + however many GLTFs are registered.
+const _TOTAL = 13 + AssetRegistry.count();  // 9 textures + 4 audio + GLTFs
 let _loaded = 0;
 const _audioPre = {};
 function _onAsset() {
@@ -1316,6 +1326,9 @@ function _onAsset() {
 ['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg', 'assets/sfx/tire_squeal.ogg'].forEach(url =>
   fetch(url).then(r => r.arrayBuffer()).then(buf => { _audioPre[url] = buf; _onAsset(); }).catch(() => _onAsset())
 );
+
+// ── GLTF pre-loads (gun, killbot1, …) ──────────────────
+AssetRegistry.preloadAll(_onAsset);
 
 // ── Textures ───────────────────────────────────────────
 {
@@ -2298,6 +2311,37 @@ function spawnMountainPeaks(si) {
   return arr;
 }
 
+// ── Obstacle pools + decoration work queue ─────────────────────────────────
+// Pre-allocate pools at module load so zero geometry is created during gameplay.
+// Sizes are tuned for worst-case segment density; pools auto-grow with a warning.
+const _manholePool = new ObjectPool({
+  size:   10,
+  create: () => { const o = new ManholeObstacle(scene, -1, 0, -5000, false, null, -5000); return o; },
+  reset:  obs => {
+    obs.cover.position.set(0, -5000, 0); obs.cover.rotation.set(0, 0, 0);
+    obs.ring.position.set(0, -5000, 0);
+    obs.hole.position.set(0, -5000, 0);
+    for (const sp of obs._steam) { obs.scene.remove(sp.mesh); sp.mesh.geometry.dispose(); sp.mesh.material.dispose(); }
+    obs._steam.length = 0;
+    obs._phase = null; obs.triggered = false;
+    obs.meshes = [obs.cover, obs.ring, obs.hole];
+  },
+});
+
+const _pedPool = new ObjectPool({
+  size:   24,
+  create: () => new PedestrianObstacle(scene, -1, 0, -5000, 1, 0, -5000),
+  reset:  obs => {
+    obs._root.position.set(0, -5000, 0);
+    obs._ragdoll = false;
+    obs._vx = 0; obs._vy = 0; obs._vz = 0;
+    obs.meshes = [obs._root];
+  },
+});
+
+// Frame-budget decoration queue — keeps any single frame under ~3 ms of deco work.
+const _decoQueue = new WorkQueue();
+
 function _spawnManhole(si) {
   const { pos, angle } = path[si];
   const px = Math.cos(angle), pz = Math.sin(angle);
@@ -2313,7 +2357,7 @@ function _spawnManhole(si) {
   const z = pos.z + pz * side * dist + fz * fwd;
   lastManholePos = { x, z };
   manholeCounter++;
-  const obs = new ManholeObstacle(scene, si, x, z, manholeCounter % 5 === 0, playManholeBlast, pos.y);
+  const obs = _manholePool.acquire().resetAt(si, x, z, pos.y, manholeCounter % 5 === 0, playManholeBlast);
   (obstaclesBySeg[si] ??= []).push(obs);
   obstacles.push(obs);
 }
@@ -2347,7 +2391,7 @@ function _spawnPedestrians(si) {
       const wx  = pos.x + px * lat + fx * fwd;
       const wz  = pos.z + pz * lat + fz * fwd;
       const dir = Math.random() < 0.5 ? 1 : -1;
-      const obs = new PedestrianObstacle(scene, si, wx, wz, dir, angle, pos.y);
+      const obs = _pedPool.acquire().resetAt(si, wx, wz, dir, angle, pos.y);
       (obstaclesBySeg[si] ??= []).push(obs);
       obstacles.push(obs);
     }
@@ -2706,9 +2750,11 @@ const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
 // for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
 // pickupFrontier = DECO_AHEAD + 6;
 
-// ── Load gun pickup ────────────────────────────────────
-new GLTFLoader().load('assets/geometry/gun.glb', gltf => {
-  gunMesh = gltf.scene;
+// ── Gun pickup setup — called at level start and on restart ────────────────
+function _setupGunPickup() {
+  const gltf = AssetRegistry.get('gun');
+  if (!gltf) return; // preload not done yet (shouldn't happen after loading screen)
+  gunMesh = gltf.scene.clone(true);
   gunMesh.scale.setScalar(0.85);
   const gpos = path[GUN_SEG].pos;
   gunMesh.position.set(gpos.x, 0.85, gpos.z);
@@ -2721,7 +2767,6 @@ new GLTFLoader().load('assets/geometry/gun.glb', gltf => {
   });
   scene.add(gunMesh);
 
-  // Additive glow halo — fake bloom
   gunGlow = new THREE.Mesh(
     new THREE.SphereGeometry(0.75, 12, 8),
     new THREE.MeshBasicMaterial({
@@ -2734,7 +2779,8 @@ new GLTFLoader().load('assets/geometry/gun.glb', gltf => {
   gunLight = new THREE.PointLight(0x00FFCC, 100, 9);
   gunLight.position.copy(gunMesh.position);
   scene.add(gunLight);
-});
+}
+_setupGunPickup();
 
 // ── Player & AI Vehicles ───────────────────────────────
 const playerLane = Math.floor(Math.random() * 4);
@@ -3662,7 +3708,8 @@ function frame() {
         buildSeg(path.length - 2);
       }
       while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
-        addDecorations(decoFrontier++);
+        const si = decoFrontier++;
+        _decoQueue.push(() => addDecorations(si));
       }
       // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
       dropSeg(player.seg - KEEP);
@@ -4116,6 +4163,9 @@ function frame() {
     }
   }
 
+  // ── Decoration work queue — drain up to 3 ms of pending segment builds ───
+  _decoQueue.flush(3);
+
   // ── Obstacle updates ─────────────────────────────────
   for (const obs of obstacles) obs.update(dt, player.x, player.z, player.seg);
 
@@ -4191,6 +4241,11 @@ function teardownL1() {
   Object.keys(segs).forEach(i => dropSeg(Number(i)));
   Object.keys(decorSeg).forEach(i => dropDecorations(Number(i)));
 
+  // Return all active pool instances before wiping scene
+  _decoQueue.clear();
+  _manholePool.releaseAll();
+  _pedPool.releaseAll();
+
   // Wipe scene, re-add persistent objects
   scene.clear();
   scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh, _toxicSkyMesh);
@@ -4198,6 +4253,8 @@ function teardownL1() {
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
   // TEMP DISABLED: pickupManager?.restorePool(scene);
   _etherCoilLightPool.restoreTo(scene);
+  _manholePool.restoreToScene(scene);
+  _pedPool.restoreToScene(scene);
 
   // Reset path state
   path.length = 0; zoneTypes.length = 0;
@@ -4252,6 +4309,7 @@ function teardownL1() {
   camYaw = 0; camBumpPos = 0; camBumpVel = 0; lastBumpSeg = -1; _fallTimer = 0;
   gunMesh = null; gunGlow = null; gunLight = null; gunPickedUp = false;
   activeWeapon = null; _dryFirePlayed = false; gunEmptyTimer = -1;
+  if (currentLevel === 1) _setupGunPickup(); // re-place gun from cached asset
   for (const g of _playerGrenades3D) g.dispose();
   _playerGrenades3D.length = 0;
   nitroCharges = 0; playerGrenades = 0; _nitroBurnTimer = 0; _grCooldown = 0;
@@ -4512,12 +4570,16 @@ function frameL2() {
       buildSeg(path.length - 2);
     }
     while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
-      addDecorations(decoFrontier++);
+      const si = decoFrontier++;
+      _decoQueue.push(() => addDecorations(si));
     }
     // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
     dropSeg(player.seg - KEEP);
     dropDecorations(player.seg - KEEP);
   }
+
+  // ── Decoration work queue (L2) ────────────────────────
+  _decoQueue.flush(3);
 
   // Animate black water — scroll the normal-map UV offset
   _waterUniforms.uTime.value += dt;

@@ -9,6 +9,8 @@ const _pipeMat   = new THREE.MeshPhongMaterial({ color: 0x363840, flatShading: t
 const _plankMat  = new THREE.MeshLambertMaterial({ color: 0x3d2a18 });
 const _yellowMat = new THREE.MeshLambertMaterial({ color: 0xFFCC00 });
 const _blackMat  = new THREE.MeshLambertMaterial({ color: 0x0f0f0f });
+
+export const WARMUP_MATS = [_steelMat, _rustMat, _concMat, _tankMat, _pipeMat, _plankMat, _yellowMat, _blackMat];
 const _up = new THREE.Vector3(0, 1, 0);
 
 // ── Pipe between two world points ─────────────────────────────────────────────
