@@ -2802,16 +2802,18 @@ function dropDecorations(si) {
   }
 }
 
+// ── Light pools — pre-allocated so spawn/dispose never changes the scene's
+//    light count and never triggers a mid-game shader recompile.
+//    MUST be declared before flushAll() runs, as addDecorations→_spawnRefinery
+//    references _refineryLightPool immediately.
+const _etherCoilLightPool  = new EtherCoilLightPool(scene, 3);
+// 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
+const _refineryLightPool   = new RefineryLightPool(scene, 40);
+
 for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
 _DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
 { const _fa0 = performance.now(); _decoQueue.flushAll(); _DBG.log(`FLUSH_ALL_END_L1\tms=${(performance.now()-_fa0).toFixed(1)}\tscene=${scene.children.length}\tlights=${scene.children.filter(c=>c.isLight).length}`); }
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
-
-// ── EtherCoil light pool — pre-allocated so coil spawn/dispose never changes
-//    the scene's light count and never triggers a mid-game shader recompile.
-const _etherCoilLightPool  = new EtherCoilLightPool(scene, 3);
-// 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
-const _refineryLightPool   = new RefineryLightPool(scene, 40);
 _dbgInitRings();
 
 pickupManager = new PickupManager(scene, path, zoneTypes);
