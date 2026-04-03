@@ -64,10 +64,9 @@ class Worker {
     this._rHip = new THREE.Group(); this._rHip.position.set( 0.08, 0.82, 0);
     const mkLeg = () => {
       const g = new THREE.Group();
-      g.add(Object.assign(
-        new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.045, 0.68, 5), _blackMat),
-        { position: new THREE.Vector3(0, -0.34, 0) }
-      ));
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.045, 0.68, 5), _blackMat);
+      leg.position.set(0, -0.34, 0);
+      g.add(leg);
       return g;
     };
     this._lHip.add(mkLeg()); this._rHip.add(mkLeg());
