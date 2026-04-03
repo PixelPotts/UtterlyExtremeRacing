@@ -295,7 +295,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { PlayerVehicle, AiVehicle }          from './assets/vehicle.js';
 import { Weapon }                            from './assets/weapons.js';
 import { ManholeObstacle, OilSpillObstacle, PedestrianObstacle, NeonCubeObstacle, OilSprayObstacle, WARMUP_MATS } from './assets/obstacles.js';
-import { BoxTruck, BT_WARMUP_MATS }  from './assets/boxtruck.js';
+// TEMP DISABLED: import { BoxTruck, BT_WARMUP_MATS }  from './assets/boxtruck.js';
 import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
@@ -315,7 +315,7 @@ import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
 import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
 import { LEVEL1_MISSION } from './assets/missions/level1.js';
-import { PickupManager } from './assets/pickups.js';
+// TEMP DISABLED: import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
 
@@ -2689,18 +2689,13 @@ let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
 //    the scene's light count and never triggers a mid-game shader recompile.
 const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
 
-// ── Pickup manager ─────────────────────────────────────
-pickupManager = new PickupManager(scene, path, zoneTypes);
-pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
-pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
-pickupManager.on('ammo',    () => {
-  if (activeWeapon) {
-    activeWeapon.ammo = Math.min(activeWeapon.maxAmmo, activeWeapon.ammo + 15);
-    gunEmptyTimer = -1; _dryFirePlayed = false;
-  }
-});
-for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
-pickupFrontier = DECO_AHEAD + 6;
+// TEMP DISABLED: PickupManager init
+// pickupManager = new PickupManager(scene, path, zoneTypes);
+// pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
+// pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
+// pickupManager.on('ammo',    () => { ... });
+// for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+// pickupFrontier = DECO_AHEAD + 6;
 
 // ── Load gun pickup ────────────────────────────────────
 new GLTFLoader().load('assets/geometry/gun.glb', gltf => {
@@ -3331,8 +3326,8 @@ function startGame() {
   //   • etherRoad     — ShaderMaterial, only used on ether road quads
   //   • etherGround   — ShaderMaterial, only used on ether terrain
 
-  const _dummyBt = new BoxTruck(scene, path, 0, SLEN);
-  _dummyBt.group.visible = false;
+  // TEMP DISABLED: const _dummyBt = new BoxTruck(scene, path, 0, SLEN);
+  // TEMP DISABLED: _dummyBt.group.visible = false;
 
   const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
   _dummyCoil._group.visible = false;
@@ -3660,12 +3655,9 @@ function frame() {
       while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
         addDecorations(decoFrontier++);
       }
-      while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
-        pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
-      }
+      // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
       dropSeg(player.seg - KEEP);
       dropDecorations(player.seg - KEEP);
-      pickupManager.dropSeg(player.seg - KEEP);
     }
 
     // Tree collision — crushable (small) trees flatten; solid big trees stop the car
@@ -3866,33 +3858,10 @@ function frame() {
       }
     }
 
-    // Box truck lifecycle — spawns randomly, stays ~30s, then flees
-    if (_btState === 'idle') {
-      _btTimer -= dt;
-      if (_btTimer <= 0) {
-        boxTruck = new BoxTruck(scene, path, player.seg + 5, SLEN, { onExplosion: playExplosionAt });
-        if (actx) boxTruck.initAudio(actx, aBufs);
-        _btState = 'active';
-        _btActiveTime = 0;
-      }
-    } else if (_btState === 'active') {
-      _btActiveTime += dt;
-      boxTruck.update(dt, player.seg, player.t, player.x, player.z, player.speed, player.angle, speedMul,
-        getFloorY(boxTruck._enemyX, boxTruck._enemyZ, boxTruck.seg));
-      if (_btActiveTime > 30) {
-        boxTruck._fleeing = true;
-        _btState = 'fleeing';
-      }
-    } else if (_btState === 'fleeing') {
-      boxTruck.update(dt, player.seg, player.t, player.x, player.z, player.speed, player.angle, speedMul,
-        getFloorY(boxTruck._enemyX, boxTruck._enemyZ, boxTruck.seg));
-      if (boxTruck.seg - player.seg > 35 || boxTruck.seg + 2 >= path.length) {
-        boxTruck.dispose();
-        boxTruck = null;
-        _btState = 'idle';
-        _btTimer = 25 + Math.random() * 55;
-      }
-    }
+    // TEMP DISABLED: Box truck lifecycle
+    // if (_btState === 'idle') { ... new BoxTruck ... }
+    // else if (_btState === 'active') { boxTruck.update(...) }
+    // else if (_btState === 'fleeing') { boxTruck.update(...); boxTruck.dispose() }
 
     // Traffic light phase cycling
     intersections.forEach(inter => {
@@ -4129,7 +4098,7 @@ function frame() {
   }
 
   // ── Pickups + player grenades ─────────────────────────
-  pickupManager?.update(dt, player.x, player.z);
+  // TEMP DISABLED: pickupManager?.update(dt, player.x, player.z);
   if (_grCooldown > 0) _grCooldown -= dt;
   for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
     if (!_playerGrenades3D[i].update(dt)) {
@@ -4218,7 +4187,7 @@ function teardownL1() {
   scene.add(ambLight, sun, sun.target, cloudGroup, rainMesh, tunnelFill, _etherSkyMesh, _toxicSkyMesh);
   streetLightPool.forEach(l => scene.add(l));
   tunnelLightPool.forEach(l => { scene.add(l); scene.add(l.target); });
-  pickupManager?.restorePool(scene);
+  // TEMP DISABLED: pickupManager?.restorePool(scene);
   _etherCoilLightPool.restoreTo(scene);
 
   // Reset path state
@@ -4277,7 +4246,8 @@ function teardownL1() {
   for (const g of _playerGrenades3D) g.dispose();
   _playerGrenades3D.length = 0;
   nitroCharges = 0; playerGrenades = 0; _nitroBurnTimer = 0; _grCooldown = 0;
-  pickupManager?.reset(); pickupFrontier = 0;
+  // TEMP DISABLED: pickupManager?.reset();
+  pickupFrontier = 0;
   crushingTrees.length = 0; obstacles.length = 0;
   Object.keys(obstaclesBySeg).forEach(k => delete obstaclesBySeg[k]);
 
@@ -4397,8 +4367,8 @@ function startLevel2() {
   // Initial decoration pass — mirrors L1 startup so water/poles appear immediately
   for (let i = 0; i <= DECO_AHEAD + 5; i++) addDecorations(i);
   decoFrontier = DECO_AHEAD + 6;
-  for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
-  pickupFrontier = DECO_AHEAD + 6;
+  // TEMP DISABLED: for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
+  // pickupFrontier = DECO_AHEAD + 6;
 
   // Player — slightly higher top speed for the open neon road
   player = new PlayerVehicle(scene, path, {
@@ -4535,12 +4505,9 @@ function frameL2() {
     while (decoFrontier <= player.seg + DECO_AHEAD && path[decoFrontier + 1]) {
       addDecorations(decoFrontier++);
     }
-    while (pickupFrontier <= player.seg + DECO_AHEAD && path[pickupFrontier + 1]) {
-      pickupManager.spawnForSeg(pickupFrontier++, gunPickedUp);
-    }
+    // TEMP DISABLED: pickupManager.spawnForSeg / dropSeg
     dropSeg(player.seg - KEEP);
     dropDecorations(player.seg - KEEP);
-    pickupManager.dropSeg(player.seg - KEEP);
   }
 
   // Animate black water — scroll the normal-map UV offset
@@ -4597,7 +4564,7 @@ function frameL2() {
   }
 
   // ── Pickups + player grenades (L2) ───────────────────
-  pickupManager?.update(dt, player.x, player.z);
+  // TEMP DISABLED: pickupManager?.update(dt, player.x, player.z);
   if (_grCooldown > 0) _grCooldown -= dt;
   for (let i = _playerGrenades3D.length - 1; i >= 0; i--) {
     if (!_playerGrenades3D[i].update(dt)) {
