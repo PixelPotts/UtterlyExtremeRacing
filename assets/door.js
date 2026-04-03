@@ -2,6 +2,7 @@ import * as THREE from 'three';
 
 // ── Shared materials ─────────────────────────────────────────────────────────
 const _frameMat = new THREE.MeshLambertMaterial({ color: 0x3D2B1F });
+export { _frameMat };  // re-exported for warmup only
 
 const _panelMats = {
   single:    new THREE.MeshLambertMaterial({ color: 0x5C3A1A, side: THREE.DoubleSide }),
@@ -15,6 +16,12 @@ const _winMat = new THREE.MeshStandardMaterial({
   roughness: 0.06, metalness: 0.28,
 });
 const _winFrameMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
+
+// ── Warmup export — keeps all door/window shader variants resident ────────────
+export const DOOR_WARMUP_MATS = [
+  _frameMat, _winMat, _winFrameMat,
+  ...Object.values(_panelMats),
+];
 
 // ── Door ──────────────────────────────────────────────────────────────────────
 // Local space: X = door-width axis, Y = height, +Z = outward normal (toward road).

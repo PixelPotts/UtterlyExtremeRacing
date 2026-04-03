@@ -267,6 +267,8 @@ export class BuildingsSegment extends RaceSegment {
     yield; // ── budget checkpoint: sidewalks+lights done ──────────────────────
 
     // Left building (expensive ~3-4ms)
+    ctx._bldgStep = 'left';
+    const _bldgT1 = performance.now();
     const _spawnSide = (s) => {
       const pl = placements[s];
       if (!pl) return;
@@ -286,11 +288,15 @@ export class BuildingsSegment extends RaceSegment {
       arr.push(bg);
     };
     _spawnSide(-1);
+    if (ctx._bldgStepMs) ctx._bldgStepMs.push(`L:${(performance.now()-_bldgT1).toFixed(1)}`);
 
     yield; // ── budget checkpoint: left building done ─────────────────────────
 
     // Right building (expensive ~3-4ms)
+    ctx._bldgStep = 'right';
+    const _bldgT2 = performance.now();
     _spawnSide(1);
+    if (ctx._bldgStepMs) ctx._bldgStepMs.push(`R:${(performance.now()-_bldgT2).toFixed(1)}`);
 
     return arr; // consumed by addDecorations via yield*
   }

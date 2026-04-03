@@ -27,6 +27,15 @@ const GROUND_H = 4.5;
 const AWNING_MATS = [0xCC2211, 0x113388, 0x227722, 0xCC6600, 0x882244, 0x334455, 0x994400]
   .map(c => new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide }));
 
+// Dummy house-plaque material — warms up Lambert+map+DoubleSide shader variant
+// so building-188's canvas plaque never triggers a mid-game shader compile.
+const _dummyPlaqueMat = new THREE.MeshLambertMaterial({
+  map: (() => { const c = document.createElement('canvas'); c.width=2; c.height=2; return new THREE.CanvasTexture(c); })(),
+  side: THREE.DoubleSide,
+});
+
+export const BLDG_EXTRA_WARMUP_MATS = [...AWNING_MATS, _dummyPlaqueMat];
+
 // Shared pilaster geometry — one instanced mesh per building (4 instances)
 const _pilGeo = new THREE.BoxGeometry(0.55, 1, 0.55); // Y=1; scaled per-building via matrix
 

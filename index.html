@@ -310,8 +310,9 @@ import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmons
 import { EtherCoil, EtherCoilLightPool } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
-import { Building, BLDG_MATS, TRIM_MAT } from './assets/buildings.js';
+import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
 import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
+import { DOOR_WARMUP_MATS } from './assets/door.js';
 import { BuildingInterior }     from './assets/building_interior.js';
 import { Walker } from './assets/walker.js';
 import { Sky } from './assets/sky.js';
@@ -1317,7 +1318,9 @@ scene.add(tunnelFill);
     ...Object.values(M).filter(Boolean),
     ...BLDG_MATS,
     TRIM_MAT,
-    ...SIGN_WARMUP_MATS,     // neon signs: 30 MeshStandardMaterial variants (map+emissiveMap)
+    ...SIGN_WARMUP_MATS,          // neon signs: 30 MeshStandardMaterial variants (map+emissiveMap)
+    ...DOOR_WARMUP_MATS,          // door frame, panels (DoubleSide), window glass (transparent), frame
+    ...BLDG_EXTRA_WARMUP_MATS,    // awnings (Lambert+DoubleSide), house plaque (Lambert+map+DoubleSide)
     ...WARMUP_MATS,          // obstacles: manhole, neon cube, nozzle, oil spill shader
     ...RM_WARMUP_MATS,       // rock monster: rock, snow, eye
     ...REF_WARMUP_MATS,      // refinery: steel, rust, concrete, tank, pipe, plank, yellow, black
@@ -2700,6 +2703,7 @@ function* addDecorations(si) {
   if (seg?.buildMeshesIter) {
     // Heavy zone (buildings): mark in-progress, spread spawning across frames
     decorSeg[si] = [];
+    segCtx._bldgStepMs = [];
     const meshes = yield* seg.buildMeshesIter(si, segCtx);
     // Guard: segment was dropped while generator was suspended (very unlikely in practice)
     if (!(si in decorSeg)) {
@@ -2764,7 +2768,9 @@ function* addDecorations(si) {
     if (si % 3 === 0) _spawnOilSpray(si);
   }
 
-  _DBG.log(`DECO\tsi=${si}\tzone=${zoneTypes[si]??'?'}\tms=${(performance.now()-_dT0).toFixed(2)}\tmeshes=${decorSeg[si]?.length??0}`);
+  const _stepStr = segCtx._bldgStepMs?.length ? `\tstepMs=${segCtx._bldgStepMs.join(',')}` : '';
+  delete segCtx._bldgStepMs;
+  _DBG.log(`DECO\tsi=${si}\tzone=${zoneTypes[si]??'?'}\tms=${(performance.now()-_dT0).toFixed(2)}\tmeshes=${decorSeg[si]?.length??0}${_stepStr}`);
 }
 
 function dropDecorations(si) {
