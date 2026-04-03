@@ -1450,15 +1450,23 @@ let starsMesh = null;
 // ── Zone system ────────────────────────────────────────
 const zoneTypes = [];
 let curZone = 'toxic', zoneLeft = 77; // ~1000 m refinery opener (77 × 13 m)
+// Planned zone sequence consumed after the opener, before going random.
+const _zonePlan = [['ether', 40]]; // ether immediately follows toxic opener
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
 function tickZone() {
   if (zoneLeft > 0) { zoneLeft--; }
   else {
-    const _zones = ZONE_PROBS.map(([z]) => z).filter(z => z !== curZone);
-    curZone = _zones[Math.floor(Math.random() * _zones.length)];
-    zoneLeft = ZONE_MIN_SEGS + Math.floor(Math.random() * (ZONE_MAX_SEGS - ZONE_MIN_SEGS + 1)) - 1;
+    if (_zonePlan.length) {
+      const [z, n] = _zonePlan.shift();
+      curZone = z;
+      zoneLeft = n - 1;
+    } else {
+      const _zones = ZONE_PROBS.map(([z]) => z).filter(z => z !== curZone);
+      curZone = _zones[Math.floor(Math.random() * _zones.length)];
+      zoneLeft = ZONE_MIN_SEGS + Math.floor(Math.random() * (ZONE_MAX_SEGS - ZONE_MIN_SEGS + 1)) - 1;
+    }
     // zoneTypes.length = segment index where this zone starts (push happens after)
     MissionSystem.onZoneStart(curZone, zoneTypes.length);
     _DBG.log(`ZONE_CHANGE\t→ ${curZone}\tsi=${zoneTypes.length}\tzoneLeft=${zoneLeft}`);
