@@ -2825,7 +2825,7 @@ function* addDecorations(si) {
     //   if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
   if (zoneTypes[si] === 'toxic') {
-    if (si % 2 === 0)  _spawnRefineryBuilding(si);     // factory blocks every 2 segs (~26 m)
+    if (si % 4 === 0)  _spawnRefineryBuilding(si);     // factory blocks every 4 segs (~52 m)
     if (si % 4 === 0)  _spawnLargePipes(si);          // pipe bundle every 4 segs (~52 m)
     if (si % 8 === 0)  _spawnCatwalk(si);             // catwalk crossing every 8 segs (~104 m)
     if (si % 20 === 0) _spawnHoldingTanks(si);        // large tank pair every 20 segs (~260 m)
@@ -2884,8 +2884,8 @@ function dropDecorations(si) {
 const _etherCoilLightPool  = { restoreTo() {} }; // stub
 // 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
 const _refineryLightPool   = new RefineryLightPool(scene, 40);
-// 1 light/building × 2 sides × every-2-segs × DECO_AHEAD=15 → max ~16 + margin
-const _sceneryLightPool    = new SceneryLightPool(scene, 22);
+// 1 light/building × 2 sides × every-4-segs × DECO_AHEAD=15 → max ~8 + margin
+const _sceneryLightPool    = new SceneryLightPool(scene, 14);
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
 _DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);

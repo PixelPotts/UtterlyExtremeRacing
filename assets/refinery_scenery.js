@@ -91,8 +91,9 @@ export class RefineryBuilding {
     const d = 18 + Math.random() * 4;      // depth laterally into toxic zone (Z dim)
     const h = 10 + Math.random() * 10;     // building height
 
-    // Center: road edge (7m hw) + 1m buffer + half depth
-    const latCenter = 8 + d * 0.5;
+    // Center: road edge (7m hw) + 1m buffer + random setback + half depth
+    const setback = Math.random() * 12;      // 0–12 m random push back from road
+    const latCenter = 8 + setback + d * 0.5;
     const cx = ox + px * side * latCenter;
     const cz = oz + pz * side * latCenter;
 
