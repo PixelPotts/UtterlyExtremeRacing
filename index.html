@@ -1676,8 +1676,8 @@ function buildJaggedBridgeRoad(si, p0, p1, a0, a1, hw, mat, holeOnLeft) {
 
   for (let n = 0; n < N; n++) {
     const a = n * 2, b = a + 1, c = a + 2, d = a + 3;
-    // sign>0 = right-side strip: CCW from above; sign<0 = left-side: reverse winding
-    if (sign > 0) idx.push(a, b, c,  c, b, d);
+    // Camera looks along -Z: left-strip (sign<0) uses original winding, right-strip (sign>0) needs reversed
+    if (sign < 0) idx.push(a, b, c,  c, b, d);
     else          idx.push(a, c, b,  c, d, b);
   }
 
