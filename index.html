@@ -2786,8 +2786,20 @@ function* addDecorations(si) {
       if (mBldg) {
         MissionSystem.registerSpawned(mSpawn.stageId, si, { x: mBldg.position.x, z: mBldg.position.z });
         Minimap.addMarker(mSpawn.stageId, mBldg.position.x, mBldg.position.z);
-        // Floating ! above the building for shop missions
+        // Shop missions: build interior + NPC + counter eagerly at segment-load time
         if (mSpawn.props?.isShop) {
+          const eb = _enterableBuildings.find(e => e.group === mBldg);
+          if (eb) {
+            eb.interior = new BuildingInterior(eb.def, eb.side);
+            eb.interior.build(eb.group);
+            const floorY    = -eb.h / 2;
+            const facingAng = -eb.side * Math.PI * 0.5;
+            const npcX      =  eb.side * (eb.w / 2 - 1.1);
+            eb.shopNpc      = new ShopNPC(eb.group, npcX, floorY, 0, facingAng);
+            const counter   = makeShopCounter(eb.side, eb.w, eb.d, floorY);
+            eb.group.add(counter);
+            eb.shopCounter  = counter;
+          }
           const markerY = mBldg.position.y + (mBldg.userData.h ?? 15) / 2 + 3.5;
           _missionMarkers.set(mSpawn.stageId, new ExclamationMarker(scene, mBldg.position.x, markerY, mBldg.position.z));
         }
@@ -3653,17 +3665,6 @@ function _triggerIntent(b, doorX, doorZ) {
   // Build interior geometry — attaches to building group (rotates/positions with it)
   b.interior = new BuildingInterior(b.def, b.side);
   b.interior.build(b.group);
-
-  // Shop interior: counter toward back wall + distressed NPC
-  if (b.def.isShop) {
-    const floorY   = -b.def.h / 2;                   // ground floor local Y
-    const facingAng = -b.side * Math.PI * 0.5;        // face toward entrance
-    const npcX      =  b.side * (b.def.w / 2 - 1.1); // behind counter, toward back wall
-    b.shopNpc    = new ShopNPC(b.group, npcX, floorY, 0, facingAng);
-    const counter = makeShopCounter(b.side, b.def.w, b.def.d, floorY);
-    b.group.add(counter);
-    b.shopCounter = counter;
-  }
 
   // Debug dot — small green sphere above the door in world space, never culled
   const dot  = new THREE.Mesh(_dotGeo, _dotMat);
