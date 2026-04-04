@@ -94,11 +94,9 @@ let _ecDbg = null;
 export function setEcDbg(fn) { _ecDbg = fn; }
 
 // ── Static shared geometry ────────────────────────────────────────────────────
-const _steelMat = new THREE.MeshPhongMaterial({ color: 0x2a2d35, flatShading: true });
-const _copperMat = new THREE.MeshStandardMaterial({
-  color: 0xb87333, metalness: 0.8, roughness: 0.25,
-  emissive: new THREE.Color(0x1a0800), emissiveIntensity: 1.0,
-});
+// MeshBasicMaterial: no light-count variants, never recompiles mid-game.
+const _steelMat  = new THREE.MeshBasicMaterial({ color: 0x3a3d45 });
+const _copperMat = new THREE.MeshBasicMaterial({ color: 0xc87c28 });
 
 // ── Shared materials + helix geo — one set for ALL EtherCoil instances ────────
 // Each mesh sets material.uniforms via onBeforeRender before its draw call,

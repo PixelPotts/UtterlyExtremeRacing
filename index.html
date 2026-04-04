@@ -2591,15 +2591,6 @@ function _spawnEtherCoil(si) {
     onHit, onNearMiss,
     _etherCoilLightPool,
   );
-  // DEBUG: full phase machine + rebuildBolt + audio + lights — but bolt meshes never drawn
-  const _origUpdate = coil.update.bind(coil);
-  coil.update = (dt, px, pz) => {
-    _origUpdate(dt, px, pz);
-    coil._boltCoreMesh.visible = false;
-    coil._boltGlowMesh.visible = false;
-    coil._impactMesh.visible   = false;
-    coil._branches.forEach(b => { b.visible = false; });
-  };
   (obstaclesBySeg[si] ??= []).push(coil);
   obstacles.push(coil);
 }
@@ -2843,7 +2834,7 @@ function* addDecorations(si) {
       _spawnEtherPortal(si);
       _DBG.log(`SPAWN_PORTAL\tside=exit\tsi=${si}\tms=${(performance.now()-_pt).toFixed(2)}`);
     }
-    // Tesla coil — geometry only (update stubbed) for freeze debugging
+    // Tesla coil — throttled internally to ~22-seg gap
     { const _ct = performance.now(); _spawnEtherCoil(si); const _cMs = performance.now()-_ct;
       if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
