@@ -2872,7 +2872,15 @@ function* addDecorations(si) {
 
 function dropDecorations(si) {
   if (!decorSeg[si]) return;
-  if (MissionSystem.isLocked(si)) return;   // keep until stage complete
+  // If the player drove past a mission building without entering, re-arm it
+  // for the next valid zone rather than locking the segment forever.
+  const _missedId = MissionSystem.requeueMissedSpawn(si);
+  if (_missedId) {
+    Minimap.removeMarker(_missedId);
+    const _mk = _missionMarkers.get(_missedId);
+    if (_mk) { _mk.dispose(); _missionMarkers.delete(_missedId); }
+    // shopNpc / shopCounter / interior cleaned up by _enterableBuildings loop below
+  }
 
   // Clean up any enterable buildings belonging to this segment
   const segObjs = new Set(decorSeg[si]);

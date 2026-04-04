@@ -126,6 +126,20 @@ class MissionSystemImpl {
     return id != null && this._state.get(id) !== 'complete';
   }
 
+  /**
+   * Called by dropDecorations when the player has moved past a locked segment.
+   * Resets the stage to 'armed' so it re-queues in the next valid zone.
+   * Returns the stageId so the caller can clean up world markers, or null.
+   */
+  requeueMissedSpawn(si) {
+    const stageId = this._locked.get(si);
+    if (!stageId || this._state.get(stageId) !== 'spawned') return null;
+    this._state.set(stageId, 'armed');
+    this._locked.delete(si);
+    this._worldPos.delete(stageId);
+    return stageId;
+  }
+
   // ── Trigger API ─────────────────────────────────────────────────────────────
 
   /**
