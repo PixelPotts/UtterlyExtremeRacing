@@ -1508,6 +1508,8 @@ function tickZone() {
 const path = [];
 let pAng=0, pTgt=0, pTimer=0, pCurve=.05;
 let pHeightY=0, pHeightVel=0, pTargetY=0;
+let _toxicDropMode = false;   // true = road targeting ground level
+let _toxicDropTimer = 25;     // segments until next break check
 const pPos = new THREE.Vector3();
 
 function genPt() {
@@ -1535,8 +1537,26 @@ function genPt() {
     pHeightVel *= 0.82;                        // damping
     pHeightY   += pHeightVel;
   } else if (curZone === 'toxic') {
-    // Spring up to ~12 m elevated — road becomes a catwalk above ground
-    pHeightVel += (12 - pHeightY) * 0.06;
+    if (_toxicDropTimer > 0) { _toxicDropTimer--; }
+
+    if (!_toxicDropMode && _toxicDropTimer === 0) {
+      if (pHeightY > 9) {
+        // Trigger sharp drop: velocity kick + enter low mode
+        _toxicDropMode  = true;
+        _toxicDropTimer = 6 + (Math.random() * 5 | 0);   // 6–10 low segments
+        pHeightVel      = Math.min(pHeightVel, -5);       // kick downward
+      } else {
+        _toxicDropTimer = 4;  // not elevated yet, retry in 4 segs
+      }
+    }
+    if (_toxicDropMode && _toxicDropTimer === 0) {
+      _toxicDropMode  = false;
+      _toxicDropTimer = 22 + (Math.random() * 15 | 0);   // 22–37 segs until next
+    }
+
+    const tY = _toxicDropMode ? 0.5 : 12;
+    const tK = _toxicDropMode ? 0.22 : 0.06;  // stiff spring for drop, soft for rise
+    pHeightVel += (tY - pHeightY) * tK;
     pHeightVel *= 0.78;
     pHeightY   += pHeightVel;
   } else {
@@ -2316,7 +2336,7 @@ function spawnToxicGround(si) {
       const bH  = roadH0 + (roadH1 - roadH0) * tf;
       for (let i = 0; i <= NX; i++) {
         const lf  = i / NX;
-        const lat = edge + lf * TW;
+        const lat = lf * (edge + TW);
         const pxt = px0 + (px1 - px0) * tf;
         const pzt = pz0 + (pz1 - pz0) * tf;
         const wx  = bx + pxt * side * lat;
