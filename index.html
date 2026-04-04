@@ -2613,7 +2613,7 @@ function _spawnLargePipes(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
   for (const side of [-1, 1]) {
-    const p = new LargePipeRun(scene, pos.x, pos.z, Math.min(pos.y, 0), angle, side, SLEN);
+    const p = new LargePipeRun(scene, pos.x, pos.z, Math.min(pos.y, 0), angle, side, SLEN, pos.y);
     (decorSeg[si] ??= []).push(...p.meshes);
   }
 }

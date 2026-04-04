@@ -180,13 +180,13 @@ export class RefineryBuilding {
 // Bundle of 3 large horizontal pipes running parallel to the road, with pylons.
 // Sits just outside the road edge, stacked at 3.8 / 5.6 / 7.4 m.
 export class LargePipeRun {
-  constructor(scene, ox, oz, groundY, angle, side, segLen = 13) {
+  constructor(scene, ox, oz, groundY, angle, side, segLen = 13, roadY = null) {
     this._scene = scene;
     this.meshes = [];
-    this._build(ox, oz, groundY, angle, side, segLen);
+    this._build(ox, oz, groundY, angle, side, segLen, roadY ?? groundY);
   }
 
-  _build(ox, oz, gY, ang, side, segLen) {
+  _build(ox, oz, gY, ang, side, segLen, roadY) {
     const S  = this._scene, mx = this.meshes;
     const fx = Math.sin(ang), fz = -Math.cos(ang);
     const px = Math.cos(ang), pz =  Math.sin(ang);
@@ -209,11 +209,11 @@ export class LargePipeRun {
     const bx = ox + fx * halfLen + px * side * lat;
     const bz = oz + fz * halfLen + pz * side * lat;
 
-    // 3 pipes stacked at increasing heights
+    // 3 pipes stacked at increasing heights relative to road elevation
     const pipeSpecs = [
-      { r: 0.55, y: gY + 3.8 },
-      { r: 0.38, y: gY + 5.6 },
-      { r: 0.25, y: gY + 7.4 },
+      { r: 0.55, y: roadY + 3.8 },
+      { r: 0.38, y: roadY + 5.6 },
+      { r: 0.25, y: roadY + 7.4 },
     ];
     for (const { r, y } of pipeSpecs) {
       _pipe(S, ax, y, az, bx, y, bz, r, mx);
@@ -223,7 +223,7 @@ export class LargePipeRun {
     for (const t of [0, 0.5, 1]) {
       const pylonX = ax + (bx - ax) * t;
       const pylonZ = az + (bz - az) * t;
-      const pylonH = 8.0;
+      const pylonH = (roadY - gY) + 7.4 + 0.6;  // ground→road + pipe offsets + buffer
 
       // Vertical post
       add(new THREE.CylinderGeometry(0.12, 0.16, pylonH, 5), _steelMat,
@@ -430,6 +430,10 @@ export class ToxicPillar {
     const colH   = roadY;           // columns rise from y=0 to road deck
     const colLat = RW * 0.5 + 1.2; // just outside road edge
 
+    // Column world positions (lateral direction = px/pz)
+    const lx = ox + px * (-colLat), lz = oz + pz * (-colLat);
+    const rx = ox + px * (+colLat), rz = oz + pz * (+colLat);
+
     for (const side of [-1, 1]) {
       const cx = ox + px * side * colLat;
       const cz = oz + pz * side * colLat;
@@ -444,14 +448,13 @@ export class ToxicPillar {
       add(new THREE.BoxGeometry(1.1, 0.35, 1.1), _steelMat, cx, roadY + 0.17, cz, ang);
     }
 
-    // Spanning cap beam across both columns at road level (Z dim = lateral span)
-    const beamSpan = colLat * 2 + 1.1;
-    add(new THREE.BoxGeometry(0.55, 0.45, beamSpan), _steelMat, ox, roadY + 0.22, oz, ang);
+    // Spanning cap beam across both columns at road level
+    _pipe(S, lx, roadY + 0.22, lz, rx, roadY + 0.22, rz, 0.28, mx);
 
     // Mid-height cross-tie if tall enough
     if (colH > 5) {
       const tieY = colH * 0.5;
-      add(new THREE.BoxGeometry(0.3, 0.3, colLat * 2), _steelMat, ox, tieY, oz, ang);
+      _pipe(S, lx, tieY, lz, rx, tieY, rz, 0.15, mx);
     }
   }
 }
