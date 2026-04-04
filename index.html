@@ -311,6 +311,7 @@ import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmons
 // TODO: tesla coils temporarily disabled — import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
+import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
 import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
 import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
 import { DOOR_WARMUP_MATS } from './assets/door.js';
@@ -1331,6 +1332,7 @@ scene.add(tunnelFill);
     ...WARMUP_MATS,          // obstacles: manhole, neon cube, nozzle, oil spill shader
     ...RM_WARMUP_MATS,       // rock monster: rock, snow, eye
     ...REF_WARMUP_MATS,      // refinery: steel, rust, concrete, tank, pipe, plank, yellow, black
+    ...SCENERY_WARMUP_MATS,  // refinery scenery: buildings, pipes, catwalks, tanks
     // TEMP DISABLED: ...BT_WARMUP_MATS,
   ];
   for (const mat of _wMats) {
@@ -2556,7 +2558,7 @@ function _spawnRefinery(si) {
   const { pos, angle } = path[si];
   const px = Math.cos(angle), pz = Math.sin(angle);
   for (const side of [-1, 1]) {
-    const dist = 38 + Math.random() * 18;
+    const dist = 22 + Math.random() * 12;
     const ref = new Refinery(
       scene,
       pos.x + px * side * dist,
@@ -2588,6 +2590,41 @@ function _spawnOilSpray(si) {
   );
   (obstaclesBySeg[si] ??= []).push(obs);
   obstacles.push(obs);
+}
+
+// ── Toxic zone: dense industrial scenery ─────────────────────────────────────
+
+function _spawnRefineryBuilding(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  for (const side of [-1, 1]) {
+    const b = new RefineryBuilding(scene, pos.x, pos.z, pos.y, angle, side);
+    (decorSeg[si] ??= []).push(...b.meshes);
+  }
+}
+
+function _spawnLargePipes(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  for (const side of [-1, 1]) {
+    const p = new LargePipeRun(scene, pos.x, pos.z, pos.y, angle, side, SLEN);
+    (decorSeg[si] ??= []).push(...p.meshes);
+  }
+}
+
+function _spawnCatwalk(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  const c = new RoadCatwalk(scene, pos.x, pos.z, pos.y, angle, RW);
+  (decorSeg[si] ??= []).push(...c.meshes);
+}
+
+function _spawnHoldingTanks(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  const side = (si % 40 === 0) ? 1 : -1;   // alternate sides every 40 segs
+  const t = new HoldingTankPair(scene, pos.x, pos.z, pos.y, angle, side);
+  (decorSeg[si] ??= []).push(...t.meshes);
 }
 
 // ── Neon cube obstacle (Level 2) ─────────────────────────────────────────────
@@ -2788,8 +2825,12 @@ function* addDecorations(si) {
     //   if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
   if (zoneTypes[si] === 'toxic') {
-    _spawnRefinery(si);
-    if (si % 3 === 0) _spawnOilSpray(si);
+    _spawnRefineryBuilding(si);                        // dense factory blocks every segment
+    if (si % 4 === 0)  _spawnLargePipes(si);          // pipe bundle every 4 segs (~52 m)
+    if (si % 8 === 0)  _spawnCatwalk(si);             // catwalk crossing every 8 segs (~104 m)
+    if (si % 20 === 0) _spawnHoldingTanks(si);        // large tank pair every 20 segs (~260 m)
+    if (si % 3 === 0)  _spawnOilSpray(si);            // oil spray on road
+    _spawnRefinery(si);                                // full refinery complex (22-seg cooldown)
   }
 
   const _stepStr = segCtx._bldgStepMs?.length ? `\tstepMs=${segCtx._bldgStepMs.join(',')}` : '';
