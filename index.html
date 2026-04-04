@@ -308,7 +308,7 @@ import { NeonLightPool }                                        from './assets/n
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
 import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmonster.js';
-import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
+// TODO: tesla coils temporarily disabled — import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
 import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
@@ -393,7 +393,7 @@ let _dbgLastTex   = 0;   // renderer.info.memory.textures — logged when it cha
 let _dbgLastGeo   = 0;   // renderer.info.memory.geometries — logged when it changes
 
 // ── EtherCoil + EtherComposer compile/render debug hooks ────────────────────
-setEcDbg((matName) => _DBG.log(`EC_COMPILE\tmat=${matName}`));
+// TODO: tesla coils temporarily disabled — setEcDbg((matName) => _DBG.log(`EC_COMPILE\tmat=${matName}`));
 window._etherDbg = (msg) => _DBG.log(msg);
 
 // ── Pink/orange debug rings — show deco frontier + drop frontier ───────────
@@ -1367,30 +1367,9 @@ function _onAsset() {
 }
 
 function _precompileShaders(sta) {
-  // Dummy EtherCoil — keeps TOROID/BOLT/GLOW/IMPACT programs in GPU cache
-  const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
-
-  // Disable frustum culling on all group meshes (toroid, steel, copper) so
-  // forceRender emits draw calls even though the group is at world y=-5000.
-  _dummyCoil._group.traverse(c => { if (c.isMesh) c.frustumCulled = false; });
-
-  // Bolt/glow/impact meshes start with empty BufferGeometry (zero vertices).
-  // Empty geo → no draw call → GPU driver never links those programs despite
-  // compileAsync running. Replace with a minimal real geometry before forceRender.
-  const _warmGeo = new THREE.TubeGeometry(
-    new THREE.LineCurve3(new THREE.Vector3(0,-5000,0), new THREE.Vector3(0,-4990,0)),
-    4, 0.5, 4, false
-  );
-  _dummyCoil._boltCoreMesh.geometry = _warmGeo;
-  _dummyCoil._boltGlowMesh.geometry = _warmGeo;
-  _dummyCoil._boltCoreMesh.frustumCulled = false;
-  _dummyCoil._boltGlowMesh.frustumCulled = false;
-  _dummyCoil._boltCoreMesh.visible = true;
-  _dummyCoil._boltGlowMesh.visible = true;
-  _dummyCoil._branches.forEach(b => { b.geometry = _warmGeo; b.frustumCulled = false; b.visible = true; });
-  _dummyCoil._impactMesh.position.y  = -5000;
-  _dummyCoil._impactMesh.frustumCulled = false;
-  _dummyCoil._impactMesh.visible = true;
+  // TODO: tesla coil dummy warmup temporarily removed (coils disabled)
+  // const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
+  // ... (see git history for full dummy coil warmup block)
 
   const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherRoad);
   const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherGround);
@@ -2538,7 +2517,7 @@ function _spawnEtherPortal(si) {
 
 // ── Rock monster (mountains zone) ─────────────────────────────────────────────
 let _lastMonsterSeg   = -999; // ensure minimum spacing between spawns
-let _lastEtherCoilSeg = -999;
+let _lastEtherCoilSeg = -999; // TODO: tesla coils temporarily disabled
 function _spawnRockMonster(si) {
   if (!path[si]) return;
   if (si - _lastMonsterSeg < 20) return; // one monster per ~260 m
@@ -2562,38 +2541,8 @@ function _spawnRockMonster(si) {
   obstacles.push(monster);
 }
 
-// ── Ether coil (ether zone) ────────────────────────────────────────────────────
-function _spawnEtherCoil(si) {
-  if (!path[si]) return;
-  if (si - _lastEtherCoilSeg < 22) return; // minimum gap ~286 m
-  _lastEtherCoilSeg = si;
-
-  const { pos, angle } = path[si];
-  const px   = Math.cos(angle), pz  = Math.sin(angle); // lateral perp to road
-  const side = Math.random() < 0.5 ? -1 : 1;
-  const dist = 55 + Math.random() * 25; // 55–80 m from road centre
-
-  const mx = pos.x + px * side * dist;
-  const mz = pos.z + pz * side * dist;
-
-  const onHit = () => {
-    player.speed  *= 0.45;
-    camBumpVel    += 7.0;
-  };
-  const onNearMiss = () => {
-    camBumpVel += 2.5;
-  };
-
-  const coil = new EtherCoil(
-    scene, mx, mz, pos.y,
-    pos.x, pos.z,
-    () => actx,
-    onHit, onNearMiss,
-    _etherCoilLightPool,
-  );
-  (obstaclesBySeg[si] ??= []).push(coil);
-  obstacles.push(coil);
-}
+// TODO: tesla coils temporarily disabled — see git history for _spawnEtherCoil implementation
+function _spawnEtherCoil(si) { /* disabled */ }
 
 // ── Toxic zone: refineries + oil spray ───────────────────────────────────────
 let _lastRefinerySeg = -999;
@@ -2889,7 +2838,8 @@ function dropDecorations(si) {
 //    light count and never triggers a mid-game shader recompile.
 //    MUST be declared before flushAll() runs, as addDecorations→_spawnRefinery
 //    references _refineryLightPool immediately.
-const _etherCoilLightPool  = new EtherCoilLightPool(scene, 3);
+// TODO: tesla coils temporarily disabled — const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
+const _etherCoilLightPool  = { restoreTo() {} }; // stub
 // 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
 const _refineryLightPool   = new RefineryLightPool(scene, 40);
 
