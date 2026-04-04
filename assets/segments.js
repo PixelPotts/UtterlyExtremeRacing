@@ -334,6 +334,14 @@ export class MountainsSegment extends RaceSegment {
   buildMeshes(si, { spawnMountainPeaks })  { return spawnMountainPeaks(si);   }
 }
 
+// ── Castle ────────────────────────────────────────────────────────────────────
+export class CastleSegment extends RaceSegment {
+  get roadMat()  { return 'stoneBridge'; }
+  get kerb()     { return KERB_NONE;     }
+  get isTunnel() { return false;         } // approach is open air; interior self-enclosed
+  buildMeshes(si, { spawnCastle }) { return spawnCastle(si); }
+}
+
 // ── Toxic sludge ──────────────────────────────────────────────────────────────
 export class ToxicSegment extends RaceSegment {
   get roadMat() { return 'toxicRoad'; }
@@ -483,15 +491,17 @@ export const SEGMENT_TYPES = {
   mountains:    new MountainsSegment(),
   ether:        new EtherSegment(),
   toxic:        new ToxicSegment(),
+  castle:       new CastleSegment(),
 };
 
 export const ZONE_PROBS = [
-  ['buildings', 0.36],
-  ['trees',     0.54],
-  ['mountains', 0.65],
-  ['ether',     0.72],  // ~7% chance — rare dimensional rift
-  ['toxic',     0.79],  // ~7% chance — toxic sludge refinery corridor
-  ['tunnel',    0.88],
-  ['bridge',    0.94],
+  ['castle',    0.09],  // castle zone — appears first in random pool
+  ['buildings', 0.27],
+  ['trees',     0.45],
+  ['mountains', 0.54],
+  ['ether',     0.61],  // rare dimensional rift
+  ['toxic',     0.68],  // toxic sludge refinery corridor
+  ['tunnel',    0.79],
+  ['bridge',    0.89],
   ['dirt',      1.00],
 ];

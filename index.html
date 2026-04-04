@@ -304,6 +304,7 @@ import { WorkQueue }     from './assets/workQueue.js';
 import { SEGMENT_TYPES, ZONE_PROBS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
 import { SEGMENT_TYPES_L2 }                                    from './assets/segments_l2.js';
+import { makeCastleSpawner }                                   from './assets/castle.js';
 import { NeonLightPool }                                        from './assets/neonlightpool.js';
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
@@ -508,6 +509,12 @@ const M = {
   water:       new THREE.MeshStandardMaterial({ color: 0x0A4060, roughness: 0.06, metalness: 0.45, emissive: 0x051828, emissiveIntensity: 0.35 }),
   bridgeTower: new THREE.MeshStandardMaterial({ color: 0xC23B28, roughness: 0.65, metalness: 0.22 }),
   bridgeCable:   new THREE.MeshStandardMaterial({ color: 0x2A2E35, roughness: 0.55, metalness: 0.40 }),
+  // ── Castle zone materials ───────────────────────────────────────────────
+  stoneBridge: new THREE.MeshStandardMaterial({ color: 0xBBAA88, roughness: 0.88, metalness: 0 }),
+  castleStone: new THREE.MeshStandardMaterial({ color: 0x998877, roughness: 0.94, metalness: 0 }),
+  castleDark:  new THREE.MeshStandardMaterial({ color: 0x4A3D35, roughness: 0.96, metalness: 0, side: THREE.DoubleSide }),
+  castleIron:  new THREE.MeshStandardMaterial({ color: 0x1A1A1A, roughness: 0.60, metalness: 0.70 }),
+  castleFire:  new THREE.MeshLambertMaterial({ color: 0xFF6600, emissive: 0xFF4400, emissiveIntensity: 2.8 }),
   ground:        new THREE.MeshStandardMaterial({ color: 0x3E5C25, roughness: 1.0,  metalness: 0 }),
   dirtGround:    new THREE.MeshStandardMaterial({ color: 0x6B5038, roughness: 1.0,  metalness: 0 }),
   toxicRoad:   null,
@@ -1426,6 +1433,10 @@ AssetRegistry.preloadAll(_onAsset);
   };
   applyTex(M.road,     'assets/textures/road.webp',          2, 2, 0xAAAAAA, 'assets/textures/road_normal.jpg',           1.2);
   applyTex(M.dirt,     'assets/textures/dirt.webp',          1, 1, 0xBBAA99, 'assets/textures/dirt_normal.jpg',           1.5);
+  // Castle stone textures (CC0, polyhaven.com)
+  applyTex(M.stoneBridge, 'assets/textures/castle_stone_bridge.jpg', 5, 5, 0xBBAA88, 'assets/textures/castle_stone_bridge_normal.jpg', 1.1);
+  applyTex(M.castleStone, 'assets/textures/castle_stone_wall.jpg',   3, 3, 0x998877, 'assets/textures/castle_stone_wall_normal.jpg',   1.3);
+  applyTex(M.castleDark,  'assets/textures/castle_stone_wall.jpg',   3, 3, 0x4A3D35, 'assets/textures/castle_stone_wall_normal.jpg',   1.2);
   applyTex(M.sidewalk, 'assets/textures/concrete_clean.jpg', 4, 4, 0xBBBBB0, 'assets/textures/concrete_clean_normal.jpg', 1.0);
   applyTex(M.pavement, 'assets/textures/concrete_dark.jpg',  4, 4, 0x777770, 'assets/textures/concrete_dark_normal.jpg',  1.0);
   [
@@ -1479,9 +1490,9 @@ let starsMesh = null;
 
 // ── Zone system ────────────────────────────────────────
 const zoneTypes = [];
-let curZone = 'toxic', zoneLeft = 77; // ~1000 m refinery opener (77 × 13 m)
-// Planned zone sequence consumed after the opener, before going random.
-const _zonePlan = [['ether', 40]]; // ether immediately follows toxic opener
+let curZone = 'castle', zoneLeft = 50; // castle opener — grand entrance
+// Planned zone sequence consumed after the castle opener, before going random.
+const _zonePlan = [['toxic', 77], ['ether', 40]]; // refinery corridor then dimensional rift
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
@@ -2764,9 +2775,12 @@ function spawnIntersectionLights(si, pos, angle) {
   return meshes;
 }
 
+// ── Castle zone spawner ──────────────────────────────────────────────────────
+const spawnCastle = makeCastleSpawner({ scene, M, RW, SLEN, path, zoneTypes, quad });
+
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround, spawnCastle };
 
 // Returns a generator iterator when the segment type has buildMeshesIter
 // (i.e. buildings), allowing WorkQueue to budget-check between building spawns.
