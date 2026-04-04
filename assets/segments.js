@@ -62,7 +62,11 @@ export class RaceSegment {
 }
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-export class StartSegment extends RaceSegment {}
+export class StartSegment extends RaceSegment {
+  get kerb() { return KERB_RED_WHITE; }
+  buildGround(si, { spawnTerrain }) { return spawnTerrain(si); }
+  buildMeshes(si, { spawnStartZone }) { return spawnStartZone(si); }
+}
 
 // ── Trees ─────────────────────────────────────────────────────────────────────
 export class TreesSegment extends RaceSegment {

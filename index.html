@@ -305,6 +305,7 @@ import { SEGMENT_TYPES, ZONE_PROBS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
 import { SEGMENT_TYPES_L2 }                                    from './assets/segments_l2.js';
 import { makeCastleSpawner }                                   from './assets/castle.js';
+import { makeStartZoneSpawner }                               from './assets/startzone.js';
 import { NeonLightPool }                                        from './assets/neonlightpool.js';
 import { FlyingCar, NEON_COLORS }                              from './assets/flyingcar.js';
 import { makeSpawnTree, makeSpawnRock } from './assets/scenery.js';
@@ -509,6 +510,8 @@ const M = {
   water:       new THREE.MeshStandardMaterial({ color: 0x0A4060, roughness: 0.06, metalness: 0.45, emissive: 0x051828, emissiveIntensity: 0.35 }),
   bridgeTower: new THREE.MeshStandardMaterial({ color: 0xC23B28, roughness: 0.65, metalness: 0.22 }),
   bridgeCable:   new THREE.MeshStandardMaterial({ color: 0x2A2E35, roughness: 0.55, metalness: 0.40 }),
+  // ── Start zone material ─────────────────────────────────────────────────
+  blockGrass: new THREE.MeshLambertMaterial({ color: 0x4A8C3F }),
   // ── Castle zone materials ───────────────────────────────────────────────
   stoneBridge: new THREE.MeshStandardMaterial({ color: 0xBBAA88, roughness: 0.88, metalness: 0 }),
   castleStone: new THREE.MeshStandardMaterial({ color: 0x998877, roughness: 0.94, metalness: 0 }),
@@ -1490,9 +1493,9 @@ let starsMesh = null;
 
 // ── Zone system ────────────────────────────────────────
 const zoneTypes = [];
-let curZone = 'castle', zoneLeft = 50; // castle opener — grand entrance
-// Planned zone sequence consumed after the castle opener, before going random.
-const _zonePlan = [['toxic', 77], ['ether', 40]]; // refinery corridor then dimensional rift
+let curZone = 'start', zoneLeft = 9;  // 10-seg straight opening stretch
+// Planned zone sequence consumed after the start zone, before going random.
+const _zonePlan = [['castle', 50], ['toxic', 77], ['ether', 40]];
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
@@ -1524,8 +1527,8 @@ let _toxicDropTimer = 25;     // segments until next break check
 const pPos = new THREE.Vector3();
 
 function genPt() {
-  if (curZone === 'bridge') {
-    pTgt = pAng;   // freeze heading — bridge biome is always straight
+  if (curZone === 'bridge' || curZone === 'start') {
+    pTgt = pAng;   // freeze heading — bridge and start are always straight
   } else {
     if (pTimer > 0) { pTimer--; }
     else {
@@ -2775,12 +2778,15 @@ function spawnIntersectionLights(si, pos, angle) {
   return meshes;
 }
 
+// ── Start zone spawner ───────────────────────────────────────────────────────
+const spawnStartZone = makeStartZoneSpawner({ scene, M, RW, SLEN, path, zoneTypes, quad, spawnTree });
+
 // ── Castle zone spawner ──────────────────────────────────────────────────────
 const spawnCastle = makeCastleSpawner({ scene, M, RW, SLEN, path, zoneTypes, quad });
 
 // ── Segment decoration context (passed to RaceSegment.buildMeshes) ──────────
 // All values are references — safe to build once; path/scene grow in place.
-const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround, spawnCastle };
+const segCtx = { scene, path, M, RW, SLEN, quad, buildKerb, zoneTypes, addCollidable, spawnTree, spawnBuilding, spawnLightPost, spawnNeonPole, spawnSplitPoleBlue, spawnSplitPoleOrange, spawnTunnel, spawnBridge, spawnIntersectionLights, spawnTerrain, spawnDirtRocks, spawnMountainTerrain, spawnMountainPeaks, spawnEtherGround, spawnToxicGround, spawnCastle, spawnStartZone };
 
 // Returns a generator iterator when the segment type has buildMeshesIter
 // (i.e. buildings), allowing WorkQueue to budget-check between building spawns.
