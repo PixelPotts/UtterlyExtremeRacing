@@ -76,8 +76,8 @@ export class RefineryBuilding {
 
   _build(ox, oz, gY, ang, side, lightPool) {
     const S  = this._scene, mx = this.meshes;
-    const fx = Math.sin(ang), fz = -Math.cos(ang);   // forward along road
-    const px = Math.cos(ang), pz =  Math.sin(ang);   // lateral
+    const fx = Math.sin(ang), fz = -Math.cos(ang);
+    const px = Math.cos(ang), pz =  Math.sin(ang);
 
     const add = (geo, mat, wx, wy, wz, ry = 0) => {
       const m = new THREE.Mesh(geo, mat);
@@ -87,62 +87,91 @@ export class RefineryBuilding {
       return m;
     };
 
-    const w = 12;                           // width along road (X dim)
-    const d = 18 + Math.random() * 4;      // depth laterally into toxic zone (Z dim)
-    const h = 10 + Math.random() * 10;     // building height
+    const w = 14 + Math.random() * 4;      // 14–18 m along road (X dim)
+    const d = 20 + Math.random() * 6;      // 20–26 m lateral depth (Z dim)
+    const h = 30 + Math.random() * 30;     // 30–60 m tall (3× taller)
 
-    // Center: road edge (7m hw) + 1m buffer + random setback + half depth
-    const setback = Math.random() * 12;      // 0–12 m random push back from road
+    const setback   = Math.random() * 24;  // 0–24 m random push from road edge (2× more)
     const latCenter = 8 + setback + d * 0.5;
     const cx = ox + px * side * latCenter;
     const cz = oz + pz * side * latCenter;
 
-    // Foundation slab
-    add(new THREE.BoxGeometry(w, 0.7, d), _concMat, cx, gY + 0.35, cz, ang);
+    // Foundation — wider to match taller mass
+    add(new THREE.BoxGeometry(w + 1.5, 1.2, d + 1.5), _concMat, cx, gY + 0.6, cz, ang);
 
     // Main body
-    add(new THREE.BoxGeometry(w - 0.4, h, d - 0.5), _steelMat, cx, gY + 0.7 + h * 0.5, cz, ang);
+    add(new THREE.BoxGeometry(w, h, d), _steelMat, cx, gY + 1.2 + h * 0.5, cz, ang);
 
-    // Roof parapet cap
-    add(new THREE.BoxGeometry(w + 0.3, 0.4, d + 0.3), _rustMat, cx, gY + 0.7 + h + 0.2, cz, ang);
+    // Roof parapet
+    add(new THREE.BoxGeometry(w + 0.5, 0.7, d + 0.5), _rustMat, cx, gY + 1.2 + h + 0.35, cz, ang);
 
-    // Window strip panels on road-facing facade (inner lateral face)
-    const facadeX = cx - px * side * (d * 0.5 - 0.12);
-    const facadeZ = cz - pz * side * (d * 0.5 - 0.12);
-    for (const fy of [0.28, 0.60]) {
-      add(new THREE.BoxGeometry(w - 2, 1.1, 0.2), _rustMat,
-        facadeX, gY + 0.7 + h * fy, facadeZ, ang);
+    // Horizontal floor bands every ~8 m — gives scale and articulation
+    const nFloors = Math.max(1, Math.floor(h / 8));
+    for (let fi = 1; fi <= nFloors; fi++) {
+      const bandY = gY + 1.2 + h * (fi / (nFloors + 1));
+      add(new THREE.BoxGeometry(w + 0.4, 0.55, d + 0.4), _rustMat, cx, bandY, cz, ang);
     }
 
-    // Chimney stack (random along-road offset)
-    const stkFwd = (Math.random() - 0.5) * 7;
+    // Road-facing facade reference (inner lateral face)
+    const facadeX = cx - px * side * (d * 0.5 - 0.12);
+    const facadeZ = cz - pz * side * (d * 0.5 - 0.12);
+
+    // Window strip rows — one per ~7 m of height
+    const nWinRows = Math.max(2, Math.floor(h / 7));
+    for (let wi = 0; wi < nWinRows; wi++) {
+      const wy = gY + 1.2 + h * ((wi + 0.5) / nWinRows);
+      add(new THREE.BoxGeometry(w - 1.5, 1.2, 0.22), _rustMat, facadeX, wy, facadeZ, ang);
+    }
+
+    // Mid-level protruding service platform at ~38% height
+    const platY = gY + 1.2 + h * 0.38;
+    add(new THREE.BoxGeometry(w + 3.0, 0.28, d + 3.0), _concMat, cx, platY, cz, ang);
+    for (const fOff of [-w * 0.4, 0, w * 0.4]) {
+      add(new THREE.CylinderGeometry(0.05, 0.05, 1.1, 4), _steelMat,
+        cx + fx * fOff, platY + 0.55, cz + fz * fOff);
+    }
+
+    // Rooftop equipment penthouse — smaller offset box
+    const pthFwd = (Math.random() - 0.5) * w * 0.45;
+    const pthH   = h * 0.12;
+    add(new THREE.BoxGeometry(w * 0.38, pthH, d * 0.38), _steelMat,
+      cx + fx * pthFwd, gY + 1.2 + h + pthH * 0.5, cz + fz * pthFwd, ang);
+
+    // Main chimney — tall absolute, shorter relative to building
+    const stkFwd = (Math.random() - 0.5) * w * 0.55;
     const stkX   = cx + fx * stkFwd, stkZ = cz + fz * stkFwd;
-    const stkH   = h * 0.5 + 3;
-    add(new THREE.CylinderGeometry(0.22, 0.28, stkH, 6), _steelMat,
-      stkX, gY + 0.7 + h + stkH * 0.5, stkZ);
-    add(new THREE.CylinderGeometry(0.36, 0.22, 0.4, 6), _steelMat,
-      stkX, gY + 0.7 + h + stkH + 0.2, stkZ);
+    const stkH   = h * 0.28 + 8;
+    add(new THREE.CylinderGeometry(0.35, 0.44, stkH, 7), _steelMat,
+      stkX, gY + 1.2 + h + stkH * 0.5, stkZ);
+    // Ring platform on chimney
+    add(new THREE.TorusGeometry(0.6, 0.09, 4, 10), _steelMat,
+      stkX, gY + 1.2 + h + stkH * 0.7, stkZ).rotation.x = Math.PI / 2;
+    add(new THREE.CylinderGeometry(0.52, 0.35, 0.55, 7), _steelMat,
+      stkX, gY + 1.2 + h + stkH + 0.28, stkZ);
+    add(new THREE.SphereGeometry(0.26, 5, 4), _warnMat,
+      stkX, gY + 1.2 + h + stkH + 0.82, stkZ);
 
-    // Amber warning beacon above chimney
-    add(new THREE.SphereGeometry(0.24, 5, 4), _warnMat,
-      stkX, gY + 0.7 + h + stkH + 0.65, stkZ);
+    // Second smaller chimney
+    const stk2Fwd = stkFwd + w * 0.32 * (Math.random() > 0.5 ? 1 : -1);
+    const stk2H   = h * 0.18 + 5;
+    add(new THREE.CylinderGeometry(0.22, 0.28, stk2H, 6), _steelMat,
+      cx + fx * stk2Fwd, gY + 1.2 + h + stk2H * 0.5, cz + fz * stk2Fwd);
 
-    // Exterior pipe: vertical up the road-side facade, then horizontal elbow inward
-    const pFwd = (Math.random() - 0.5) * 5;
+    // Exterior pipe: vertical up facade, horizontal elbow inward
+    const pFwd = (Math.random() - 0.5) * w * 0.5;
     const pX   = facadeX + fx * pFwd, pZ = facadeZ + fz * pFwd;
-    const pipeTopY = gY + h * 0.65;
-    _pipe(S, pX, gY + 1.2, pZ, pX, pipeTopY, pZ, 0.14, mx);
-    // Elbow: horizontal toward building (inward)
-    const elbX = cx + px * side * (latCenter - 3);
-    const elbZ = cz + pz * side * (latCenter - 3);
-    _pipe(S, pX, pipeTopY, pZ, elbX, pipeTopY, elbZ, 0.14, mx);
+    const pipeTopY = gY + h * 0.55;
+    _pipe(S, pX, gY + 1.4, pZ, pX, pipeTopY, pZ, 0.15, mx);
+    const elbX = cx + px * side * (latCenter - 4);
+    const elbZ = cz + pz * side * (latCenter - 4);
+    _pipe(S, pX, pipeTopY, pZ, elbX, pipeTopY, elbZ, 0.15, mx);
 
-    // Ambient fill light — warm amber PointLight, placed just in front of facade
+    // Ambient fill light at facade base
     if (lightPool) {
       const lx = facadeX - px * side * 1.5;
       const lz = facadeZ - pz * side * 1.5;
-      const light = lightPool.acquire(lx, gY + 3.0, lz);
-      if (light) mx[0].userData.sceneryPoolSlot = light;  // stored on foundation for cleanup
+      const light = lightPool.acquire(lx, gY + 4.0, lz);
+      if (light) mx[0].userData.sceneryPoolSlot = light;
     }
   }
 }
@@ -215,13 +244,15 @@ export class LargePipeRun {
 // Industrial walkway bridge spanning the full road at ~14m height.
 // Two structural pylons anchor each side with observation platforms.
 export class RoadCatwalk {
-  constructor(scene, ox, oz, groundY, angle, roadWidth) {
+  // groundY: base of pylons (world ground, y=0 when road is elevated)
+  // roadY: elevation of road deck — pylons always extend 14 m above it
+  constructor(scene, ox, oz, groundY, roadY, angle, roadWidth) {
     this._scene = scene;
     this.meshes = [];
-    this._build(ox, oz, groundY, angle, roadWidth);
+    this._build(ox, oz, groundY, roadY, angle, roadWidth);
   }
 
-  _build(ox, oz, gY, ang, RW) {
+  _build(ox, oz, gY, roadY, ang, RW) {
     const S  = this._scene, mx = this.meshes;
     const fx = Math.sin(ang), fz = -Math.cos(ang);
     const px = Math.cos(ang), pz =  Math.sin(ang);
@@ -234,10 +265,11 @@ export class RoadCatwalk {
       return m;
     };
 
-    const pylonH   = 14;
-    const walkY    = gY + pylonH;
-    const pylonLat = RW * 0.5 + 1.1 + 2.5;  // past kerb + margin
-    const span     = pylonLat * 2;            // full lateral walkway span
+    const pylonAbove = 14;                         // metres above road deck
+    const totalPylonH = (roadY - gY) + pylonAbove; // total height ground→walkway
+    const walkY    = gY + totalPylonH;
+    const pylonLat = RW * 0.5 + 1.1 + 2.5;
+    const span     = pylonLat * 2;
 
     // Pylons — one on each side
     for (const side of [-1, 1]) {
@@ -245,8 +277,8 @@ export class RoadCatwalk {
       const pylonZ = oz + pz * side * pylonLat;
 
       // Main column
-      add(new THREE.CylinderGeometry(0.34, 0.42, pylonH, 7), _steelMat,
-        pylonX, gY + pylonH * 0.5, pylonZ);
+      add(new THREE.CylinderGeometry(0.34, 0.42, totalPylonH, 7), _steelMat,
+        pylonX, gY + totalPylonH * 0.5, pylonZ);
 
       // Observation platform (oriented along road = X dim)
       add(new THREE.BoxGeometry(4.5, 0.28, 2.8), _rustMat, pylonX, walkY + 0.14, pylonZ, ang);
@@ -266,7 +298,7 @@ export class RoadCatwalk {
       // Diagonal brace pipe outward from column
       const braceEndX = pylonX + px * side * 4.5;
       const braceEndZ = pylonZ + pz * side * 4.5;
-      _pipe(S, pylonX, gY + pylonH * 0.58, pylonZ, braceEndX, gY + pylonH * 0.78, braceEndZ, 0.10, mx);
+      _pipe(S, pylonX, gY + totalPylonH * 0.58, pylonZ, braceEndX, gY + totalPylonH * 0.78, braceEndZ, 0.10, mx);
     }
 
     // Horizontal walkway bridge (Z dim = span = lateral)
@@ -367,6 +399,59 @@ export class HoldingTankPair {
     for (const fSign of [-1, 1]) {
       const ewX = cx + fx * fSign * bFH, ewZ = cz + fz * fSign * bFH;
       add(new THREE.BoxGeometry(1.1, 1.2, bLH * 2), _concMat, ewX, bermY, ewZ, ang);
+    }
+  }
+}
+
+// ── ToxicPillar ───────────────────────────────────────────────────────────────
+// Support columns at road edges when road is elevated above ground.
+// Each pillar: two box columns one per side, base flare, cap plate, spanning beam.
+export class ToxicPillar {
+  constructor(scene, ox, oz, roadY, angle, roadWidth) {
+    this._scene = scene;
+    this.meshes = [];
+    if (roadY < 2.5) return;  // skip when road is still near ground
+    this._build(ox, oz, roadY, angle, roadWidth);
+  }
+
+  _build(ox, oz, roadY, ang, RW) {
+    const S  = this._scene, mx = this.meshes;
+    const fx = Math.sin(ang), fz = -Math.cos(ang);
+    const px = Math.cos(ang), pz =  Math.sin(ang);
+
+    const add = (geo, mat, wx, wy, wz, ry = 0) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(wx, wy, wz);
+      if (ry) m.rotation.y = ry;
+      S.add(m); mx.push(m);
+      return m;
+    };
+
+    const colH   = roadY;           // columns rise from y=0 to road deck
+    const colLat = RW * 0.5 + 1.2; // just outside road edge
+
+    for (const side of [-1, 1]) {
+      const cx = ox + px * side * colLat;
+      const cz = oz + pz * side * colLat;
+
+      // Base flare — wider footing
+      add(new THREE.BoxGeometry(1.4, 0.5, 1.4), _concMat, cx, 0.25, cz, ang);
+
+      // Main column
+      add(new THREE.BoxGeometry(0.65, colH, 0.65), _steelMat, cx, colH * 0.5, cz, ang);
+
+      // Cap plate — sits flush with road deck
+      add(new THREE.BoxGeometry(1.1, 0.35, 1.1), _steelMat, cx, roadY + 0.17, cz, ang);
+    }
+
+    // Spanning cap beam across both columns at road level (Z dim = lateral span)
+    const beamSpan = colLat * 2 + 1.1;
+    add(new THREE.BoxGeometry(0.55, 0.45, beamSpan), _steelMat, ox, roadY + 0.22, oz, ang);
+
+    // Mid-height cross-tie if tall enough
+    if (colH > 5) {
+      const tieY = colH * 0.5;
+      add(new THREE.BoxGeometry(0.3, 0.3, colLat * 2), _steelMat, ox, tieY, oz, ang);
     }
   }
 }

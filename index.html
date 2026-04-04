@@ -311,7 +311,7 @@ import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmons
 // TODO: tesla coils temporarily disabled — import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
-import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, SceneryLightPool, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
+import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, ToxicPillar, SceneryLightPool, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
 import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
 import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
 import { DOOR_WARMUP_MATS } from './assets/door.js';
@@ -1533,6 +1533,11 @@ function genPt() {
     pHeightVel += (pTargetY - pHeightY) * K;
     pHeightVel *= 0.82;                        // damping
     pHeightY   += pHeightVel;
+  } else if (curZone === 'toxic') {
+    // Spring up to ~12 m elevated — road becomes a catwalk above ground
+    pHeightVel += (12 - pHeightY) * 0.06;
+    pHeightVel *= 0.78;
+    pHeightY   += pHeightVel;
   } else {
     // Decay smoothly back to flat when leaving hilly biome
     pHeightVel *= 0.80;
@@ -2297,8 +2302,8 @@ function spawnToxicGround(si) {
   const PI2    = Math.PI * 2;
   const px0    = Math.cos(a0), pz0 = Math.sin(a0);
   const px1    = Math.cos(a1), pz1 = Math.sin(a1);
-  const roadH0 = p0.y + 0.38;
-  const roadH1 = p1.y + 0.38;
+  const roadH0 = Math.min(p0.y, 0) + 0.38;
+  const roadH1 = Math.min(p1.y, 0) + 0.38;
   const meshes = [];
 
   for (const side of [-1, 1]) {
@@ -2563,7 +2568,7 @@ function _spawnRefinery(si) {
       scene,
       pos.x + px * side * dist,
       pos.z + pz * side * dist,
-      pos.y, angle,
+      Math.min(pos.y, 0), angle,
       _refineryLightPool
     );
     (obstaclesBySeg[si] ??= []).push(ref);
@@ -2598,7 +2603,7 @@ function _spawnRefineryBuilding(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
   for (const side of [-1, 1]) {
-    const b = new RefineryBuilding(scene, pos.x, pos.z, pos.y, angle, side, _sceneryLightPool);
+    const b = new RefineryBuilding(scene, pos.x, pos.z, Math.min(pos.y, 0), angle, side, _sceneryLightPool);
     (decorSeg[si] ??= []).push(...b.meshes);
   }
 }
@@ -2607,7 +2612,7 @@ function _spawnLargePipes(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
   for (const side of [-1, 1]) {
-    const p = new LargePipeRun(scene, pos.x, pos.z, pos.y, angle, side, SLEN);
+    const p = new LargePipeRun(scene, pos.x, pos.z, Math.min(pos.y, 0), angle, side, SLEN);
     (decorSeg[si] ??= []).push(...p.meshes);
   }
 }
@@ -2615,7 +2620,8 @@ function _spawnLargePipes(si) {
 function _spawnCatwalk(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
-  const c = new RoadCatwalk(scene, pos.x, pos.z, pos.y, angle, RW);
+  const groundY = Math.min(pos.y, 0);
+  const c = new RoadCatwalk(scene, pos.x, pos.z, groundY, pos.y, angle, RW);
   (decorSeg[si] ??= []).push(...c.meshes);
 }
 
@@ -2623,8 +2629,15 @@ function _spawnHoldingTanks(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
   const side = (si % 40 === 0) ? 1 : -1;   // alternate sides every 40 segs
-  const t = new HoldingTankPair(scene, pos.x, pos.z, pos.y, angle, side);
+  const t = new HoldingTankPair(scene, pos.x, pos.z, Math.min(pos.y, 0), angle, side);
   (decorSeg[si] ??= []).push(...t.meshes);
+}
+
+function _spawnToxicPillars(si) {
+  if (!path[si]) return;
+  const { pos, angle } = path[si];
+  const p = new ToxicPillar(scene, pos.x, pos.z, pos.y, angle, RW);
+  if (p.meshes.length) (decorSeg[si] ??= []).push(...p.meshes);
 }
 
 // ── Neon cube obstacle (Level 2) ─────────────────────────────────────────────
@@ -2825,6 +2838,7 @@ function* addDecorations(si) {
     //   if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
   if (zoneTypes[si] === 'toxic') {
+    _spawnToxicPillars(si);                            // support pillars every segment when elevated
     if (si % 4 === 0)  _spawnRefineryBuilding(si);     // factory blocks every 4 segs (~52 m)
     if (si % 4 === 0)  _spawnLargePipes(si);          // pipe bundle every 4 segs (~52 m)
     if (si % 8 === 0)  _spawnCatwalk(si);             // catwalk crossing every 8 segs (~104 m)
