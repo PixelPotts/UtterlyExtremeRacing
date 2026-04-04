@@ -1495,7 +1495,7 @@ let starsMesh = null;
 const zoneTypes = [];
 let curZone = 'start', zoneLeft = 9;  // 10-seg straight opening stretch
 // Planned zone sequence consumed after the start zone, before going random.
-const _zonePlan = [['castle', 50], ['toxic', 77], ['ether', 40]];
+const _zonePlan = [['bridge', 35], ['castle', 50], ['toxic', 77], ['ether', 40]];
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
@@ -1676,7 +1676,9 @@ function buildJaggedBridgeRoad(si, p0, p1, a0, a1, hw, mat, holeOnLeft) {
 
   for (let n = 0; n < N; n++) {
     const a = n * 2, b = a + 1, c = a + 2, d = a + 3;
-    idx.push(a, b, c,  c, b, d);
+    // sign>0 = right-side strip: CCW from above; sign<0 = left-side: reverse winding
+    if (sign > 0) idx.push(a, b, c,  c, b, d);
+    else          idx.push(a, c, b,  c, d, b);
   }
 
   const g = new THREE.BufferGeometry();
@@ -1742,11 +1744,11 @@ function buildSeg(i) {
     let bStart = i;
     while (bStart > 0 && zoneTypes[bStart - 1] === 'bridge') bStart--;
     const bIdx = i - bStart;
-    const HOLE_PERIOD = 5;
+    const HOLE_PERIOD = 8;
     const holeOffset = Math.floor(seededRand(bStart * 3.7) * HOLE_PERIOD);
-    hasBridgeHole = bIdx >= 2 && ((bIdx - holeOffset + 1000) % HOLE_PERIOD === 0);
+    hasBridgeHole = bIdx >= 3 && ((bIdx - holeOffset + 1000) % HOLE_PERIOD === 0);
     const holeCount = Math.floor((bIdx - holeOffset + 1000) / HOLE_PERIOD);
-    bridgeHoleLeft = (holeCount % 2) === 0;
+    bridgeHoleLeft = seededRand(bStart * 19 + holeCount) < 0.5;
   }
 
   const road = (isBridge && hasBridgeHole)
