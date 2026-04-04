@@ -10,6 +10,40 @@ const _warnMat  = new THREE.MeshBasicMaterial({ color: 0xff8800 }); // amber bea
 
 export const SCENERY_WARMUP_MATS = [_steelMat, _rustMat, _concMat, _tankMat, _pipeMat, _warnMat];
 
+// ── SceneryLightPool ──────────────────────────────────────────────────────────
+// Pre-allocated PointLights for building ambient fill — warm amber-orange.
+// Acquired lights are stored in a mesh's userData.sceneryPoolSlot for cleanup.
+export class SceneryLightPool {
+  constructor(scene, size = 22) {
+    this._lights = Array.from({ length: size }, () => {
+      const l = new THREE.PointLight(0xff9933, 0, 24);
+      l.position.set(0, -500, 0);
+      scene.add(l);
+      return l;
+    });
+    this._free = this._lights.map((_, i) => i);
+  }
+  acquire(x, y, z) {
+    const i = this._free.pop();
+    if (i == null) return null;
+    const l = this._lights[i];
+    l.intensity = 5;
+    l.position.set(x, y, z);
+    return l;
+  }
+  release(light) {
+    if (!light) return;
+    const i = this._lights.indexOf(light);
+    if (i === -1) return;
+    light.intensity = 0;
+    light.position.set(0, -500, 0);
+    this._free.push(i);
+  }
+  restoreTo(scene) {
+    for (const l of this._lights) scene.add(l);
+  }
+}
+
 const _up = new THREE.Vector3(0, 1, 0);
 
 // ── Pipe utility ───────────────────────────────────────────────────────────────
@@ -34,13 +68,13 @@ function _pipe(scene, ax, ay, az, bx, by, bz, r, meshes) {
 // Convention: BoxGeometry(xLen, yLen, zLen) with rotation.y = ang →
 //   xLen spans along road (forward), zLen spans laterally (perpendicular).
 export class RefineryBuilding {
-  constructor(scene, ox, oz, groundY, angle, side) {
+  constructor(scene, ox, oz, groundY, angle, side, lightPool = null) {
     this._scene  = scene;
     this.meshes  = [];
-    this._build(ox, oz, groundY, angle, side);
+    this._build(ox, oz, groundY, angle, side, lightPool);
   }
 
-  _build(ox, oz, gY, ang, side) {
+  _build(ox, oz, gY, ang, side, lightPool) {
     const S  = this._scene, mx = this.meshes;
     const fx = Math.sin(ang), fz = -Math.cos(ang);   // forward along road
     const px = Math.cos(ang), pz =  Math.sin(ang);   // lateral
@@ -101,6 +135,14 @@ export class RefineryBuilding {
     const elbX = cx + px * side * (latCenter - 3);
     const elbZ = cz + pz * side * (latCenter - 3);
     _pipe(S, pX, pipeTopY, pZ, elbX, pipeTopY, elbZ, 0.14, mx);
+
+    // Ambient fill light — warm amber PointLight, placed just in front of facade
+    if (lightPool) {
+      const lx = facadeX - px * side * 1.5;
+      const lz = facadeZ - pz * side * 1.5;
+      const light = lightPool.acquire(lx, gY + 3.0, lz);
+      if (light) mx[0].userData.sceneryPoolSlot = light;  // stored on foundation for cleanup
+    }
   }
 }
 

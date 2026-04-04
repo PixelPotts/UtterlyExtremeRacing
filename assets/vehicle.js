@@ -85,7 +85,7 @@ export class Vehicle {
 
   _buildHeadlights(offsets) {
     for (const off of offsets) {
-      const light = new THREE.SpotLight(0xFFFFCC, 350, 40, Math.PI / 9, 0.2, 2);
+      const light = new THREE.SpotLight(0xFFFFCC, 350, 65, Math.PI / 6, 0.2, 2);
       light.castShadow = false;
       this.scene.add(light);
       this.scene.add(light.target);
@@ -114,7 +114,7 @@ export class Vehicle {
       const wz = this.z + fz * off.z + rz * off.x;
       light.position.set(wx, off.y, wz);
       light.target.position.set(
-        this.x + fx * (off.z + 20) + rx * off.x,
+        this.x + fx * (off.z + 45) + rx * off.x,
         -1,
         this.z + fz * (off.z + 20) + rz * off.x
       );

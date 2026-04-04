@@ -311,7 +311,7 @@ import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmons
 // TODO: tesla coils temporarily disabled — import { EtherCoil, EtherCoilLightPool, setEcDbg } from './assets/ethercoil.js';
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
-import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
+import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, SceneryLightPool, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
 import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
 import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
 import { DOOR_WARMUP_MATS } from './assets/door.js';
@@ -2598,7 +2598,7 @@ function _spawnRefineryBuilding(si) {
   if (!path[si]) return;
   const { pos, angle } = path[si];
   for (const side of [-1, 1]) {
-    const b = new RefineryBuilding(scene, pos.x, pos.z, pos.y, angle, side);
+    const b = new RefineryBuilding(scene, pos.x, pos.z, pos.y, angle, side, _sceneryLightPool);
     (decorSeg[si] ??= []).push(...b.meshes);
   }
 }
@@ -2825,7 +2825,7 @@ function* addDecorations(si) {
     //   if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
   if (zoneTypes[si] === 'toxic') {
-    _spawnRefineryBuilding(si);                        // dense factory blocks every segment
+    if (si % 2 === 0)  _spawnRefineryBuilding(si);     // factory blocks every 2 segs (~26 m)
     if (si % 4 === 0)  _spawnLargePipes(si);          // pipe bundle every 4 segs (~52 m)
     if (si % 8 === 0)  _spawnCatwalk(si);             // catwalk crossing every 8 segs (~104 m)
     if (si % 20 === 0) _spawnHoldingTanks(si);        // large tank pair every 20 segs (~260 m)
@@ -2858,6 +2858,7 @@ function dropDecorations(si) {
     if (o?.userData?.neonPoolSlot        && _neonLightPool)        _neonLightPool.release(o.userData.neonPoolSlot);
     if (o?.userData?.splitPoolSlotBlue   && _splitLightPoolBlue)   _splitLightPoolBlue.release(o.userData.splitPoolSlotBlue);
     if (o?.userData?.splitPoolSlotOrange && _splitLightPoolOrange) _splitLightPoolOrange.release(o.userData.splitPoolSlotOrange);
+    if (o?.userData?.sceneryPoolSlot     && _sceneryLightPool)    _sceneryLightPool.release(o.userData.sceneryPoolSlot);
     if (!o.userData.sharedGeo) o.traverse(c => { if (c.isMesh) c.geometry.dispose(); });
   });
   streetLightPosts.delete(si);
@@ -2883,6 +2884,8 @@ function dropDecorations(si) {
 const _etherCoilLightPool  = { restoreTo() {} }; // stub
 // 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
 const _refineryLightPool   = new RefineryLightPool(scene, 40);
+// 1 light/building × 2 sides × every-2-segs × DECO_AHEAD=15 → max ~16 + margin
+const _sceneryLightPool    = new SceneryLightPool(scene, 22);
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
 _DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
@@ -4389,6 +4392,7 @@ function teardownL1() {
   pickupManager?.restorePool(scene);
   _etherCoilLightPool.restoreTo(scene);
   _refineryLightPool.restoreTo(scene);
+  _sceneryLightPool.restoreTo(scene);
   _manholePool.restoreToScene(scene);
   _pedPool.restoreToScene(scene);
 
