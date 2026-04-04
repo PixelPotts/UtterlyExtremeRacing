@@ -2591,7 +2591,15 @@ function _spawnEtherCoil(si) {
     onHit, onNearMiss,
     _etherCoilLightPool,
   );
-  coil.update = () => {}; // DEBUG: geometry only, no phase machine / bolt / audio
+  // DEBUG: full phase machine + rebuildBolt + audio + lights — but bolt meshes never drawn
+  const _origUpdate = coil.update.bind(coil);
+  coil.update = (dt, px, pz) => {
+    _origUpdate(dt, px, pz);
+    coil._boltCoreMesh.visible = false;
+    coil._boltGlowMesh.visible = false;
+    coil._impactMesh.visible   = false;
+    coil._branches.forEach(b => { b.visible = false; });
+  };
   (obstaclesBySeg[si] ??= []).push(coil);
   obstacles.push(coil);
 }
