@@ -2591,6 +2591,7 @@ function _spawnEtherCoil(si) {
     onHit, onNearMiss,
     _etherCoilLightPool,
   );
+  coil.update = () => {}; // DEBUG: geometry only, no phase machine / bolt / audio
   (obstaclesBySeg[si] ??= []).push(coil);
   obstacles.push(coil);
 }
@@ -2834,9 +2835,9 @@ function* addDecorations(si) {
       _spawnEtherPortal(si);
       _DBG.log(`SPAWN_PORTAL\tside=exit\tsi=${si}\tms=${(performance.now()-_pt).toFixed(2)}`);
     }
-    // Tesla coil — DISABLED for freeze debugging
-    // { const _ct = performance.now(); _spawnEtherCoil(si); const _cMs = performance.now()-_ct;
-    //   if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
+    // Tesla coil — geometry only (update stubbed) for freeze debugging
+    { const _ct = performance.now(); _spawnEtherCoil(si); const _cMs = performance.now()-_ct;
+      if (_cMs > 0.5) _DBG.log(`SPAWN_COIL\tsi=${si}\tms=${_cMs.toFixed(2)}`); }
   }
   if (zoneTypes[si] === 'toxic') {
     _spawnRefinery(si);
