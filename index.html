@@ -1369,12 +1369,28 @@ function _onAsset() {
 function _precompileShaders(sta) {
   // Dummy EtherCoil — keeps TOROID/BOLT/GLOW/IMPACT programs in GPU cache
   const _dummyCoil = new EtherCoil(scene, 0, -5000, -5000, 0, 0, () => null, null, null, _etherCoilLightPool);
-  _dummyCoil._boltCoreMesh.position.y = -5000;
-  _dummyCoil._boltGlowMesh.position.y = -5000;
-  _dummyCoil._impactMesh.position.y   = -5000;
+
+  // Disable frustum culling on all group meshes (toroid, steel, copper) so
+  // forceRender emits draw calls even though the group is at world y=-5000.
+  _dummyCoil._group.traverse(c => { if (c.isMesh) c.frustumCulled = false; });
+
+  // Bolt/glow/impact meshes start with empty BufferGeometry (zero vertices).
+  // Empty geo → no draw call → GPU driver never links those programs despite
+  // compileAsync running. Replace with a minimal real geometry before forceRender.
+  const _warmGeo = new THREE.TubeGeometry(
+    new THREE.LineCurve3(new THREE.Vector3(0,-5000,0), new THREE.Vector3(0,-4990,0)),
+    4, 0.5, 4, false
+  );
+  _dummyCoil._boltCoreMesh.geometry = _warmGeo;
+  _dummyCoil._boltGlowMesh.geometry = _warmGeo;
+  _dummyCoil._boltCoreMesh.frustumCulled = false;
+  _dummyCoil._boltGlowMesh.frustumCulled = false;
   _dummyCoil._boltCoreMesh.visible = true;
   _dummyCoil._boltGlowMesh.visible = true;
-  _dummyCoil._impactMesh.visible   = true;
+  _dummyCoil._branches.forEach(b => { b.geometry = _warmGeo; b.frustumCulled = false; b.visible = true; });
+  _dummyCoil._impactMesh.position.y  = -5000;
+  _dummyCoil._impactMesh.frustumCulled = false;
+  _dummyCoil._impactMesh.visible = true;
 
   const _dummyEtherRoad   = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherRoad);
   const _dummyEtherGround = new THREE.Mesh(new THREE.PlaneGeometry(1,1), M.etherGround);
