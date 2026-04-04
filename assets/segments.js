@@ -180,6 +180,7 @@ export class BuildingsSegment extends RaceSegment {
       bg.userData.isBuilding = true;
       bg.userData.hw         = def.w / 2;
       bg.userData.hd         = def.d / 2;
+      bg.userData.h          = def.h;
       bg.userData.side       = s;
       if (def.enterable) {
         const dw = def.doorType === 'garage' ? def.w * 0.65 : (def.doorType === 'double' ? 2.0 : 1.0);
@@ -277,6 +278,7 @@ export class BuildingsSegment extends RaceSegment {
       bg.userData.isBuilding = true;
       bg.userData.hw         = def.w / 2;
       bg.userData.hd         = def.d / 2;
+      bg.userData.h          = def.h;
       bg.userData.side       = s;
       if (def.enterable) {
         const dw = def.doorType === 'garage' ? def.w * 0.65 : (def.doorType === 'double' ? 2.0 : 1.0);

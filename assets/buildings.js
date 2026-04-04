@@ -27,6 +27,21 @@ const GROUND_H = 4.5;
 const AWNING_MATS = [0xCC2211, 0x113388, 0x227722, 0xCC6600, 0x882244, 0x334455, 0x994400]
   .map(c => new THREE.MeshLambertMaterial({ color: c, side: THREE.DoubleSide }));
 
+// Index 7: white/green stripes (canvas texture) — mission shop awning
+{
+  const cvs = document.createElement('canvas');
+  cvs.width = 128; cvs.height = 64;
+  const _cx = cvs.getContext('2d');
+  const sw  = 16;
+  for (let i = 0; i < cvs.width / sw; i++) {
+    _cx.fillStyle = i % 2 === 0 ? '#ffffff' : '#229944';
+    _cx.fillRect(i * sw, 0, sw, cvs.height);
+  }
+  const tex = new THREE.CanvasTexture(cvs);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  AWNING_MATS.push(new THREE.MeshLambertMaterial({ map: tex, side: THREE.DoubleSide }));
+}
+
 // Dummy house-plaque material — warms up Lambert+map+DoubleSide shader variant
 // so building-188's canvas plaque never triggers a mid-game shader compile.
 const _dummyPlaqueMat = new THREE.MeshLambertMaterial({

@@ -106,7 +106,8 @@ export class BuildingInterior {
     this.side     = side;
 
     const { h } = def;
-    this.nFloors  = Math.min(8, Math.max(1, Math.floor(h / 3.2)));
+    // Shop buildings: single open floor, no partitions or staircases
+    this.nFloors  = def.isShop ? 1 : Math.min(8, Math.max(1, Math.floor(h / 3.2)));
     this.floorH   = h / this.nFloors;
 
     // Staircase runs along X; Z bounds = ±STAIR_W/2 (width).
@@ -195,8 +196,8 @@ export class BuildingInterior {
     }
 
     // ── Hallway partition walls (waist-height, with centre opening) ───────────
-    // Only where there's enough depth to make rooms on both sides of the hall.
-    if (id > 3.5) {
+    // Skip for shop buildings — open floor plan
+    if (id > 3.5 && !this.def.isShop) {
       this._addPartition(parent, w, fh, floorY, +HALL_HW);
       this._addPartition(parent, w, fh, floorY, -HALL_HW);
     }

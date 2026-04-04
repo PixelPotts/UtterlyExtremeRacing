@@ -325,6 +325,7 @@ import { LEVEL1_MISSION } from './assets/missions/level1.js';
 import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
+import { ExclamationMarker, ShopNPC, makeShopCounter } from './assets/props.js';
 
 // ── Live-tunable parameters (editable via Options screen) ──────────────────
 const PARAMS = window.PARAMS = {
@@ -2785,6 +2786,11 @@ function* addDecorations(si) {
       if (mBldg) {
         MissionSystem.registerSpawned(mSpawn.stageId, si, { x: mBldg.position.x, z: mBldg.position.z });
         Minimap.addMarker(mSpawn.stageId, mBldg.position.x, mBldg.position.z);
+        // Floating ! above the building for shop missions
+        if (mSpawn.props?.isShop) {
+          const markerY = mBldg.position.y + (mBldg.userData.h ?? 15) / 2 + 3.5;
+          _missionMarkers.set(mSpawn.stageId, new ExclamationMarker(scene, mBldg.position.x, markerY, mBldg.position.z));
+        }
       }
     } else {
       // No viable building in this segment — try the next one
@@ -2861,8 +2867,10 @@ function dropDecorations(si) {
   for (let i = _enterableBuildings.length - 1; i >= 0; i--) {
     const eb = _enterableBuildings[i];
     if (segObjs.has(eb.group)) {
-      if (eb.interior)   eb.interior.dispose(eb.group);
-      if (eb.intentDot)  scene.remove(eb.intentDot);
+      if (eb.interior)    eb.interior.dispose(eb.group);
+      if (eb.intentDot)   scene.remove(eb.intentDot);
+      if (eb.shopNpc)     eb.shopNpc.dispose();
+      if (eb.shopCounter) eb.group.remove(eb.shopCounter);
       _enterableBuildings.splice(i, 1);
     }
   }
@@ -2968,6 +2976,9 @@ player.group.rotation.y = Math.PI;
 let walkMode = false, walker = null;
 let inBuilding = false, _interiorMeshes = [], _currentBldg = null;
 const _enterableBuildings = [];   // populated by spawnBuilding for def.enterable
+
+// ── Mission world markers (stageId → ExclamationMarker) ────────────────────
+const _missionMarkers = new Map();
 
 const aiColors       = [0xCC2211, 0xDDAA00, 0xDDDDDD];
 const aiPersonalities = ['aggressive', 'normal', 'defensive'];
@@ -3643,6 +3654,17 @@ function _triggerIntent(b, doorX, doorZ) {
   b.interior = new BuildingInterior(b.def, b.side);
   b.interior.build(b.group);
 
+  // Shop interior: counter toward back wall + distressed NPC
+  if (b.def.isShop) {
+    const floorY   = -b.def.h / 2;                   // ground floor local Y
+    const facingAng = -b.side * Math.PI * 0.5;        // face toward entrance
+    const npcX      =  b.side * (b.def.w / 2 - 1.1); // behind counter, toward back wall
+    b.shopNpc    = new ShopNPC(b.group, npcX, floorY, 0, facingAng);
+    const counter = makeShopCounter(b.side, b.def.w, b.def.d, floorY);
+    b.group.add(counter);
+    b.shopCounter = counter;
+  }
+
   // Debug dot — small green sphere above the door in world space, never culled
   const dot  = new THREE.Mesh(_dotGeo, _dotMat);
   dot.position.set(doorX, b.groundY + 2.9, doorZ);
@@ -3727,7 +3749,10 @@ function enterBuilding(b) {
 
   const mResult = MissionSystem.notify(b.group.userData.missionId);
   if (mResult) {
-    Minimap.removeMarker(b.group.userData.missionId);
+    const mid = b.group.userData.missionId;
+    Minimap.removeMarker(mid);
+    const marker = _missionMarkers.get(mid);
+    if (marker) { marker.dispose(); _missionMarkers.delete(mid); }
     const p = mResult.story?.length ? DialogSystem.show(mResult.story) : Promise.resolve();
     if (mResult.isLevelComplete) {
       p.then(() => setTimeout(() => { if (currentLevel === 1) { teardownL1(); startLevel2(); } }, 1500));
@@ -3816,6 +3841,7 @@ function frame() {
       wFloorY = getFloorY(walker.x, walker.z, walker.seg);
     }
     walker.update(dt, DialogSystem.isActive() ? {} : keys, wFloorY);
+    if (inBuilding && _currentBldg?.shopNpc) _currentBldg.shopNpc.update(dt);
     // Advance walker.seg along path
     for (let s = walker.seg - 1; s <= walker.seg + 2; s++) {
       if (!path[s] || !path[s + 1]) continue;
@@ -4159,6 +4185,7 @@ function frame() {
   // Sky — update biome atmosphere
   sky.setZone(zoneTypes[player.seg] ?? 'trees');
   sky.update(dt);
+  for (const m of _missionMarkers.values()) m.update(dt);
 
   sun.position.set(player.x+60, 150, player.z+50);
   sun.target.position.set(player.x, roadY + .5, player.z);
@@ -4388,6 +4415,10 @@ function teardownL1() {
   _countdownTimeouts.length = 0;
   bgm.pause();
   if (actx) { actx.close(); actx = null; }
+
+  // Dispose mission world markers
+  for (const m of _missionMarkers.values()) m.dispose();
+  _missionMarkers.clear();
 
   // Dispose tracked road segs + decorations
   Object.keys(segs).forEach(i => dropSeg(Number(i)));

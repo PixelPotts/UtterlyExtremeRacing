@@ -11,6 +11,7 @@
 
 import { DOOR_ENTRY }   from '../stories/door_entry.js';
 import { GREEN_AWNING } from '../stories/green_awning.js';
+import { SHOP_RESCUE }  from '../stories/shop_rescue.js';
 
 export const LEVEL1_MISSION = [
   // ── Stage 0: Yellow door ───────────────────────────────────────────────────
@@ -39,5 +40,20 @@ export const LEVEL1_MISSION = [
     },
     trigger: { type: 'enter_building' },
     story:   GREEN_AWNING,
+  },
+
+  // ── Stage 2: Distressed shop ───────────────────────────────────────────────
+  // Next city zone after green_awning. Civilian Mila with patrol-gap intel.
+  // awningMatIdx:7 = white/green stripes; isShop:true = open interior + NPC
+  {
+    id:           'shop_rescue',
+    prerequisite: 'green_awning',
+    spawn: {
+      zone:   'buildings',
+      offset: 8,
+      props:  { enterable: true, awningMatIdx: 7, isShop: true },
+    },
+    trigger: { type: 'enter_building' },
+    story:   SHOP_RESCUE,
   },
 ];
