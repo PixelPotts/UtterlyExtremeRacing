@@ -1630,6 +1630,66 @@ function getFloorY(x, z, nearSeg) {
 
 function segWidth() { return RW; }
 
+function seededRand(seed) {
+  const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function buildJaggedBridgeRoad(si, p0, p1, a0, a1, hw, mat, holeOnLeft) {
+  // Strip covers 40% of road width on the side OPPOSITE the hole
+  // outer edge = barrier side (±hw), inner edge = jagged near center
+  const N = 7; // jagged sample points along segment length
+  const STRIP_W = hw * 0.8;   // 40% of half-width * 2 = 40% total
+  const INNER_BASE = hw - STRIP_W; // = 0.2*hw from center
+  const JAGGED_AMP = hw * 0.15;
+
+  const px0 = Math.cos(a0), pz0 = Math.sin(a0);
+  const px1 = Math.cos(a1), pz1 = Math.sin(a1);
+  const ry0 = p0.y + 0.4, ry1 = p1.y + 0.4;
+
+  // sign: +1 = right side of road, -1 = left side
+  const sign = holeOnLeft ? 1 : -1;
+
+  const verts = [], uvs = [], idx = [];
+
+  for (let n = 0; n <= N; n++) {
+    const t = n / N;
+    const px = px0 + (px1 - px0) * t;
+    const pz = pz0 + (pz1 - pz0) * t;
+    const bx = p0.x + (p1.x - p0.x) * t;
+    const bz = p0.z + (p1.z - p0.z) * t;
+    const y  = ry0 + (ry1 - ry0) * t;
+
+    const jag = (seededRand(si * 31 + n) - 0.5) * 2 * JAGGED_AMP;
+    const innerOff = INNER_BASE + jag;
+
+    // outer vertex (at barrier edge)
+    const ox = bx + px * sign * hw;
+    const oz = bz + pz * sign * hw;
+    // inner vertex (jagged, toward center)
+    const ix = bx + px * sign * innerOff;
+    const iz = bz + pz * sign * innerOff;
+
+    verts.push(ox, y, oz,  ix, y, iz);
+    uvs.push(t, 0,  t, 1);
+  }
+
+  for (let n = 0; n < N; n++) {
+    const a = n * 2, b = a + 1, c = a + 2, d = a + 3;
+    idx.push(a, b, c,  c, b, d);
+  }
+
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, mat);
+  m.receiveShadow = true;
+  scene.add(m);
+  return m;
+}
+
 function quad(x0,z0,x1,z1,x2,z2,x3,z3, y0, y1, mat) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute([x0,y0,z0,x1,y0,z1,x2,y1,z2,x1,y0,z1,x3,y1,z3,x2,y1,z2],3));
@@ -1674,10 +1734,27 @@ function buildSeg(i) {
   const roadMat = M[_seg.roadMat];
 
   const ry0 = p0.y, ry1 = p1.y;
-  const road = quad(
-    p0.x-px0*hw, p0.z-pz0*hw, p0.x+px0*hw, p0.z+pz0*hw,
-    p1.x-px1*hw, p1.z-pz1*hw, p1.x+px1*hw, p1.z+pz1*hw,
-    ry0+.4, ry1+.4, roadMat);
+
+  // Bridge hole detection
+  const isBridge = zoneTypes[i] === 'bridge';
+  let hasBridgeHole = false, bridgeHoleLeft = false;
+  if (isBridge) {
+    let bStart = i;
+    while (bStart > 0 && zoneTypes[bStart - 1] === 'bridge') bStart--;
+    const bIdx = i - bStart;
+    const HOLE_PERIOD = 5;
+    const holeOffset = Math.floor(seededRand(bStart * 3.7) * HOLE_PERIOD);
+    hasBridgeHole = bIdx >= 2 && ((bIdx - holeOffset + 1000) % HOLE_PERIOD === 0);
+    const holeCount = Math.floor((bIdx - holeOffset + 1000) / HOLE_PERIOD);
+    bridgeHoleLeft = (holeCount % 2) === 0;
+  }
+
+  const road = (isBridge && hasBridgeHole)
+    ? buildJaggedBridgeRoad(i, p0, p1, a0, a1, hw, roadMat, bridgeHoleLeft)
+    : quad(
+        p0.x-px0*hw, p0.z-pz0*hw, p0.x+px0*hw, p0.z+pz0*hw,
+        p1.x-px1*hw, p1.z-pz1*hw, p1.x+px1*hw, p1.z+pz1*hw,
+        ry0+.4, ry1+.4, roadMat);
   const kerbCtx = { M, buildKerb: (ix0,iz0,ox0,oz0,ix1,iz1,ox1,oz1, mat, opts={}) =>
     buildKerb(ix0,iz0,ox0,oz0,ix1,iz1,ox1,oz1, mat, { ...opts, y0: ry0, y1: ry1 }) };
   // Left kerb: inner→outer sweeps left, winding is correct
@@ -1689,7 +1766,7 @@ function buildSeg(i) {
     p0.x+px0*(hw+kw), p0.z+pz0*(hw+kw), p0.x+px0*hw, p0.z+pz0*hw,
     p1.x+px1*(hw+kw), p1.z+pz1*(hw+kw), p1.x+px1*hw, p1.z+pz1*hw, i, kerbCtx);
   let dash = null;
-  if ((i&1)===0) {
+  if ((i&1)===0 && !(isBridge && hasBridgeHole)) {
     const mx=(p0.x+p1.x)*.5, mz=(p0.z+p1.z)*.5, dw=.28;
     dash = quad(p0.x-px0*dw,p0.z-pz0*dw, p0.x+px0*dw,p0.z+pz0*dw, mx-px0*dw,mz-pz0*dw, mx+px0*dw,mz+pz0*dw, ry0+.45, (ry0+ry1)*.5+.45, M.dash);
   }
