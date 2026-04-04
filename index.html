@@ -4291,6 +4291,9 @@ function frame() {
       if (_egPrevPh === 1) { _stopEtherStatic(); bgm.play().catch(() => {}); }
       if (_egPrevPh === 2 && _egCurrPh === 3) { _playZzap(); }
     }
+  } else {
+    // Player left the zone — cut any lingering ether audio immediately
+    if (_etherStaticSrc) { _stopEtherStatic(); bgm.play().catch(() => {}); }
   }
 
   _dbgUpdateRings();
