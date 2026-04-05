@@ -3908,6 +3908,13 @@ function enterBuilding(b) {
       Minimap.removeMarker(_mKey);
       const mk = _missionMarkers.get(_mKey);
       if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
+      // Re-scan already-generated zones from decoFrontier forward.
+      // onZoneStart may have fired before accept (AHEA=30, ZONE_MIN_SEGS=30),
+      // so objective spawns need to be queued retroactively.
+      let _rz = null;
+      for (let _rs = decoFrontier; _rs < zoneTypes.length; _rs++) {
+        if (zoneTypes[_rs] !== _rz) { _rz = zoneTypes[_rs]; MissionSystem.onZoneStart(_rz, _rs); }
+      }
       if (result.briefing?.length) DialogSystem.show(result.briefing);
     }
   } else if (_mRole === 'objective') {
