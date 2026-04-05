@@ -52,6 +52,10 @@ canvas { display: block; cursor: none; }
 #pos-hud { position:fixed; bottom:18px; left:28px; pointer-events:none; color:#fff; font-family:'Courier New',monospace; text-shadow:0 0 12px rgba(0,0,0,0.9); line-height:1; display:flex; align-items:baseline; gap:2px; }
 #pos-num { font-size:72px; font-weight:bold; }
 #pos-den { font-size:28px; font-weight:bold; opacity:0.65; }
+#mission-hud { position:fixed; top:18px; left:18px; pointer-events:none; font:13px 'Courier New',monospace; text-shadow:0 0 10px rgba(0,0,0,0.9); display:none; }
+#mission-name { color:rgba(255,200,0,0.7); font-size:10px; letter-spacing:3px; text-transform:uppercase; margin-bottom:4px; }
+#mission-obj { color:#fff; }
+#mission-timer { color:rgba(255,80,80,0.9); font-size:11px; margin-top:3px; }
 
 /* ── Dialog box ─────────────────────────────────────────── */
 #dialog-box {
@@ -160,6 +164,7 @@ canvas { display: block; cursor: none; }
 <div id="ammo-hud"></div>
 <div id="grenade-hud"></div>
 <div id="nitro-hud"></div>
+<div id="mission-hud"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-timer"></div></div>
 <canvas id="gauges"  width="220" height="130"></canvas>
 <canvas id="minimap" width="160" height="160"></canvas>
 <div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; G grenade &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
@@ -322,8 +327,7 @@ import { Walker } from './assets/walker.js';
 import { Sky } from './assets/sky.js';
 import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
-import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
-import { LEVEL1_MISSION } from './assets/missions/level1.js';
+import { TEST_MISSIONS }  from './assets/missions/test_mission.js';
 import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
@@ -2877,7 +2881,7 @@ function* addDecorations(si) {
 
   // Inject mission spawn if one is pending for this segment
   const mSpawn = MissionSystem.drainSpawns(si);
-  if (mSpawn) segCtx.missionOverride = { si, stageId: mSpawn.stageId, props: mSpawn.props, _applied: false, _side: null };
+  if (mSpawn) segCtx.missionOverride = { si, missionId: mSpawn.missionId, role: mSpawn.role, objId: mSpawn.objId, _key: mSpawn._key, props: mSpawn.props, _applied: false, _side: null };
 
   // Fixed 188 building — always on the left side of segment 42
   const is188 = si === BLDG_188_SEG && !mSpawn;
@@ -2901,11 +2905,11 @@ function* addDecorations(si) {
   // Register or requeue after buildMeshes
   if (mSpawn) {
     if (segCtx.missionOverride._applied) {
-      const mBldg = decorSeg[si].find(o => o.userData.missionId === mSpawn.stageId);
+      const mBldg = decorSeg[si].find(o => o.userData._missionSpawnKey === mSpawn._key);
       if (mBldg) {
-        MissionSystem.registerSpawned(mSpawn.stageId, si, { x: mBldg.position.x, z: mBldg.position.z });
-        Minimap.addMarker(mSpawn.stageId, mBldg.position.x, mBldg.position.z);
-        // Shop missions: build interior + NPC + counter eagerly at segment-load time
+        MissionSystem.registerSpawned(mSpawn, si, { x: mBldg.position.x, z: mBldg.position.z });
+        Minimap.addMarker(mSpawn._key, mBldg.position.x, mBldg.position.z);
+        // Shop prop: eager interior + NPC + counter
         if (mSpawn.props?.isShop) {
           const eb = _enterableBuildings.find(e => e.group === mBldg);
           if (eb) {
@@ -2919,9 +2923,10 @@ function* addDecorations(si) {
             eb.group.add(counter);
             eb.shopCounter  = counter;
           }
-          const markerY = mBldg.position.y + (mBldg.userData.h ?? 15) / 2 + 3.5;
-          _missionMarkers.set(mSpawn.stageId, new ExclamationMarker(scene, mBldg.position.x, markerY, mBldg.position.z));
         }
+        // Exclamation marker for all mission buildings (giver and objective)
+        const markerY = mBldg.position.y + (mBldg.userData.h ?? 15) / 2 + 3.5;
+        _missionMarkers.set(mSpawn._key, new ExclamationMarker(scene, mBldg.position.x, markerY, mBldg.position.z));
       }
     } else {
       // No viable building in this segment — try the next one
@@ -3687,8 +3692,8 @@ function startGame() {
   const ldr = document.getElementById('loader');
   if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
   frame();
-  if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSION);
-  DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
+  if (currentLevel === 1) MissionSystem.load(TEST_MISSIONS);
+  startCountdown();
 }
 window._startRace = startGame;
 
@@ -3853,6 +3858,26 @@ function _logBuildingEntry(b) {
   a.click();
 }
 
+// ── Mission result handler ──────────────────────────────────────────────────
+// Called by enterBuilding (objective) and notifyEvent; result may be null.
+function _handleMissionResult(result) {
+  if (!result) return;
+  const p = result.debrief?.length ? DialogSystem.show(result.debrief) : Promise.resolve();
+  if (result.isLevelComplete)
+    p.then(() => setTimeout(() => { if (currentLevel === 1) { teardownL1(); startLevel2(); } }, 1500));
+}
+
+function _updateMissionHUD() {
+  const name  = MissionSystem.activeMissionName();
+  const obj   = MissionSystem.activeObjectiveText();
+  const timer = MissionSystem.activeTimerText();
+  const el    = document.getElementById('mission-hud');
+  el.style.display = name ? 'block' : 'none';
+  document.getElementById('mission-name').textContent  = name  ?? '';
+  document.getElementById('mission-obj').textContent   = obj   ?? '';
+  document.getElementById('mission-timer').textContent = timer ?? '';
+}
+
 function enterBuilding(b) {
   inBuilding   = true;
   _currentBldg = b;
@@ -3875,16 +3900,22 @@ function enterBuilding(b) {
 
   _logBuildingEntry(b);
 
-  const mResult = MissionSystem.notify(b.group.userData.missionId);
-  if (mResult) {
-    const mid = b.group.userData.missionId;
-    Minimap.removeMarker(mid);
-    const marker = _missionMarkers.get(mid);
-    if (marker) { marker.dispose(); _missionMarkers.delete(mid); }
-    const p = mResult.story?.length ? DialogSystem.show(mResult.story) : Promise.resolve();
-    if (mResult.isLevelComplete) {
-      p.then(() => setTimeout(() => { if (currentLevel === 1) { teardownL1(); startLevel2(); } }, 1500));
+  const _mRole = b.group.userData.missionRole;
+  const _mKey  = b.group.userData._missionSpawnKey;
+  if (_mRole === 'giver') {
+    const result = MissionSystem.acceptMission(b.group.userData.missionId);
+    if (result) {
+      Minimap.removeMarker(_mKey);
+      const mk = _missionMarkers.get(_mKey);
+      if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
+      if (result.briefing?.length) DialogSystem.show(result.briefing);
     }
+  } else if (_mRole === 'objective') {
+    const result = MissionSystem.completeObjective(b.group.userData.missionId, b.group.userData.missionObjId);
+    Minimap.removeMarker(_mKey);
+    const mk = _missionMarkers.get(_mKey);
+    if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
+    _handleMissionResult(result);
   }
 }
 
@@ -4314,6 +4345,33 @@ function frame() {
   sky.setZone(zoneTypes[player.seg] ?? 'trees');
   sky.update(dt);
   for (const m of _missionMarkers.values()) m.update(dt);
+
+  // ── Mission system tick (fail conditions) ────────────────────────────────
+  const _mFail = MissionSystem.tick(dt);
+  if (_mFail) {
+    for (const key of _mFail.staleKeys) {
+      Minimap.removeMarker(key);
+      const _smk = _missionMarkers.get(key);
+      if (_smk) { _smk.dispose(); _missionMarkers.delete(key); }
+    }
+  }
+  _updateMissionHUD();
+
+  // ── Player bullet → AI hit detection ────────────────────────────────────
+  if (activeWeapon) {
+    outer: for (const b of activeWeapon.bullets) {
+      for (const ai of aiCars) {
+        const dx = b.mesh.position.x - ai.group.position.x;
+        const dy = b.mesh.position.y - ai.group.position.y;
+        const dz = b.mesh.position.z - ai.group.position.z;
+        if (dx*dx + dy*dy + dz*dz < 2.8 * 2.8) {
+          b.life = -1;
+          _handleMissionResult(MissionSystem.notifyEvent('enemy_hit'));
+          continue outer;
+        }
+      }
+    }
+  }
 
   sun.position.set(player.x+60, 150, player.z+50);
   sun.target.position.set(player.x, roadY + .5, player.z);

@@ -192,7 +192,12 @@ export class BuildingsSegment extends RaceSegment {
         bg.userData.doorHW    = dw / 2 + 0.4;
         // Tag mission buildings so enterBuilding() can notify MissionSystem
         const mo = ctx.missionOverride;
-        if (mo?.stageId && s === mo._side) bg.userData.missionId = mo.stageId;
+        if (mo?._key && s === mo._side) {
+          bg.userData.missionId        = mo.missionId;
+          bg.userData.missionRole      = mo.role;
+          bg.userData.missionObjId     = mo.objId ?? null;
+          bg.userData._missionSpawnKey = mo._key;
+        }
       }
       arr.push(bg);
     }
@@ -289,7 +294,12 @@ export class BuildingsSegment extends RaceSegment {
         bg.userData.enterable = true;
         bg.userData.doorHW    = dw / 2 + 0.4;
         const mo = ctx.missionOverride;
-        if (mo?.stageId && s === mo._side) bg.userData.missionId = mo.stageId;
+        if (mo?._key && s === mo._side) {
+          bg.userData.missionId        = mo.missionId;
+          bg.userData.missionRole      = mo.role;
+          bg.userData.missionObjId     = mo.objId ?? null;
+          bg.userData._missionSpawnKey = mo._key;
+        }
       }
       arr.push(bg);
     };
