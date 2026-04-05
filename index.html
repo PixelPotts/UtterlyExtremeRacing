@@ -166,7 +166,7 @@ canvas { display: block; cursor: none; }
 <div id="nitro-hud"></div>
 <div id="mission-hud"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-timer"></div></div>
 <canvas id="gauges"  width="220" height="130"></canvas>
-<canvas id="minimap" width="160" height="160"></canvas>
+<canvas id="minimap" width="200" height="200"></canvas>
 <div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; G grenade &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
 <div id="lights"><div id="light-bar">
   <div class="bulb" id="bl-red"></div>
@@ -2908,7 +2908,7 @@ function* addDecorations(si) {
       const mBldg = decorSeg[si].find(o => o.userData._missionSpawnKey === mSpawn._key);
       if (mBldg) {
         MissionSystem.registerSpawned(mSpawn, si, { x: mBldg.position.x, z: mBldg.position.z });
-        Minimap.addMarker(mSpawn._key, mBldg.position.x, mBldg.position.z);
+        Minimap.addMarker(mSpawn._key, mBldg.position.x, mBldg.position.z, { route: mSpawn.role === 'objective' });
         // Shop prop: eager interior + NPC + counter
         if (mSpawn.props?.isShop) {
           const eb = _enterableBuildings.find(e => e.group === mBldg);

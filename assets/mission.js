@@ -279,6 +279,15 @@ class MissionSystemImpl {
 
   worldPosOf(key) { return this._worldPos.get(key) ?? null; }
 
+  /** World position {x,z} of the current active objective building, or null. */
+  activeObjectivePos() {
+    const m = this._missions.find(m => this._mState.get(m.id) === 'accepted');
+    if (!m) return null;
+    const obj = this._currentObjective(m);
+    if (!obj) return null;
+    return this._worldPos.get(`${m.id}:${obj.id}`) ?? null;
+  }
+
   // ── Private ────────────────────────────────────────────────────────────────
 
   _currentObjective(m) {
