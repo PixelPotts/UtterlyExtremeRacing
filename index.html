@@ -391,7 +391,7 @@ const _DBG = (() => {
   const buf = [];
   let timer = null;
   function flush() { if (!buf.length) return; fetch(`${BASE}/log`, { method:'POST', body: buf.splice(0).join('\n') }).catch(()=>{}); timer = null; }
-  function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 300); }
+  function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 50); }
   // Clear log on every page load so each run starts fresh
   fetch(`${BASE}/clear`, { method:'POST' }).catch(() => {});
   return { log };
