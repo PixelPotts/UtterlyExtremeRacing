@@ -7,6 +7,9 @@ const _wallMat   = new THREE.MeshLambertMaterial({ color: 0xC8BCAA, side: THREE.
 const _stairMat  = new THREE.MeshLambertMaterial({ color: 0x998877 });
 const _railMat   = new THREE.MeshLambertMaterial({ color: 0x4A3A2A });
 
+// Reusable dummy for InstancedMesh matrix writes
+const _dummy = new THREE.Object3D();
+
 // ── Layout constants ──────────────────────────────────────────────────────────
 const HALL_HW   = 0.9;   // half-width of the central hallway corridor in Z
 const WALL_T    = 0.15;  // interior partition thickness
@@ -27,29 +30,30 @@ class Staircase {
     const sw       = zR - zL;    // stair width in Z
     const cz       = (zL + zR) * 0.5;  // Z center
 
-    // ── Tread geometry (width=sw in Z, depth=tread in X) ─────────────────────
-    const treadGeo = new THREE.BoxGeometry(tread, SLAB_T, sw);
-
+    // ── Treads — single InstancedMesh (was N_STEPS separate meshes) ───────────
+    const treadGeo  = new THREE.BoxGeometry(tread, SLAB_T, sw);
+    const treadInst = new THREE.InstancedMesh(treadGeo, _stairMat, N_STEPS);
     for (let i = 0; i < N_STEPS; i++) {
-      const stepX = xStart + dir * (i + 0.5) * tread;
-      const stepY = yBottom + (i + 0.5) * rise;
-      const mesh  = new THREE.Mesh(treadGeo, _stairMat);
-      mesh.userData.sharedGeo = true;
-      mesh.position.set(stepX, stepY, cz);
-      group.add(mesh);
+      _dummy.position.set(xStart + dir * (i + 0.5) * tread, yBottom + (i + 0.5) * rise, cz);
+      _dummy.rotation.set(0, 0, 0);
+      _dummy.updateMatrix();
+      treadInst.setMatrixAt(i, _dummy.matrix);
     }
+    treadInst.instanceMatrix.needsUpdate = true;
+    group.add(treadInst);
 
-    // ── Riser faces (thin vertical quads between each step) ──────────────────
-    const riserGeo = new THREE.PlaneGeometry(sw, rise);
+    // ── Risers — single InstancedMesh (was N_STEPS separate meshes) ──────────
+    const riserGeo  = new THREE.PlaneGeometry(sw, rise);
+    const riserInst = new THREE.InstancedMesh(riserGeo, _stairMat, N_STEPS);
+    const riserRotY = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
     for (let i = 0; i < N_STEPS; i++) {
-      const rX = xStart + dir * i * tread;
-      const rY = yBottom + (i + 0.5) * rise;
-      const r  = new THREE.Mesh(riserGeo, _stairMat);
-      r.userData.sharedGeo = true;
-      r.rotation.y = dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-      r.position.set(rX, rY, cz);
-      group.add(r);
+      _dummy.position.set(xStart + dir * i * tread, yBottom + (i + 0.5) * rise, cz);
+      _dummy.rotation.set(0, riserRotY, 0);
+      _dummy.updateMatrix();
+      riserInst.setMatrixAt(i, _dummy.matrix);
     }
+    riserInst.instanceMatrix.needsUpdate = true;
+    group.add(riserInst);
 
     // ── Handrail — slanted box on the +Z (zR) side ───────────────────────────
     const railLen   = Math.sqrt(totalRun * totalRun + floorH * floorH) + 0.15;
@@ -57,7 +61,7 @@ class Staircase {
     const railGeo   = new THREE.BoxGeometry(railLen, 0.05, 0.05);
     const rail      = new THREE.Mesh(railGeo, _railMat);
     rail.position.set((xStart + xEnd) * 0.5, yBottom + floorH * 0.5 + 0.9, zR - 0.04);
-    rail.rotation.z = dir > 0 ? -railAngle : railAngle;   // pitch along X
+    rail.rotation.z = dir > 0 ? -railAngle : railAngle;
     group.add(rail);
 
     // ── Newel posts at top and bottom ─────────────────────────────────────────
@@ -101,13 +105,19 @@ class Staircase {
 // Call getLocalFloorY(lx, lz, approxLocalY) from the game loop for walker physics.
 // Call dispose(buildingGroup) when the segment is unloaded.
 export class BuildingInterior {
-  constructor(def, side) {
+  /**
+   * @param {object} def
+   * @param {number} side
+   * @param {object} [opts]
+   * @param {number} [opts.maxFloors=8]  Cap on number of floors (use 3 for mission buildings)
+   */
+  constructor(def, side, { maxFloors = 8 } = {}) {
     this.def      = def;
     this.side     = side;
 
     const { h } = def;
     // Shop buildings: single open floor, no partitions or staircases
-    this.nFloors  = def.isShop ? 1 : Math.min(8, Math.max(1, Math.floor(h / 3.2)));
+    this.nFloors  = def.isShop ? 1 : Math.min(maxFloors, Math.max(1, Math.floor(h / 3.2)));
     this.floorH   = h / this.nFloors;
 
     // Staircase runs along X; Z bounds = ±STAIR_W/2 (width).
@@ -162,7 +172,7 @@ export class BuildingInterior {
     if (!this._group) return;
     buildingGroup.remove(this._group);
     this._group.traverse(c => {
-      if (c.isMesh && !c.userData.sharedGeo) c.geometry.dispose();
+      if (c.isMesh) c.geometry.dispose();
     });
     this._group    = null;
     this.staircases = [];
@@ -223,7 +233,6 @@ export class BuildingInterior {
         new THREE.PlaneGeometry(landW, landD), _floorMat
       );
       landing.rotation.x = -Math.PI * 0.5;
-      // Top landing at xEnd, Y = floorY + floorH
       const lx = this.stairXEnd - Math.sign(this.stairXEnd - this.stairXStart) * landW * 0.5;
       landing.position.set(lx, floorY + fh + 0.016, (this.stairZL + this.stairZR) * 0.5);
       parent.add(landing);

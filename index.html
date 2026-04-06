@@ -2912,7 +2912,7 @@ function* addDecorations(si) {
         // Eagerly build interior for all mission buildings (avoids hitch on approach)
         const eb = _enterableBuildings.find(e => e.group === mBldg);
         if (eb && !eb.interior) {
-          eb.interior = new BuildingInterior(eb.def, eb.side);
+          eb.interior = new BuildingInterior(eb.def, eb.side, { maxFloors: 3 });
           eb.interior.build(eb.group);
         }
         // Shop-only extras: NPC + counter
