@@ -128,8 +128,9 @@ export class BuildingsSegment extends RaceSegment {
         const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
         const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
         if (forceMission) { mo._applied = true; mo._side = s; }
-        const center = cursor + def.d * 0.5;
-        const depth  = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
+        const center   = cursor + def.d * 0.5;
+        const rawDepth = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
+        const depth    = Math.max(rawDepth, swOuter + def.w * 0.5 + 0.1);
         placements[s] = { def, center, depth };
         cursor += def.d + MIN_GAP;
       }
@@ -234,8 +235,9 @@ export class BuildingsSegment extends RaceSegment {
         const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
         const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
         if (forceMission) { mo._applied = true; mo._side = s; }
-        const center = cursor + def.d * 0.5;
-        const depth  = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
+        const center   = cursor + def.d * 0.5;
+        const rawDepth = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
+        const depth    = Math.max(rawDepth, swOuter + def.w * 0.5 + 0.1);
         placements[s] = { def, center, depth };
         cursor += def.d + MIN_GAP;
       }
