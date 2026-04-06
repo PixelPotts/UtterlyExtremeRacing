@@ -128,9 +128,13 @@ export class BuildingsSegment extends RaceSegment {
         const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
         const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
         if (forceMission) { mo._applied = true; mo._side = s; }
-        const center   = cursor + def.d * 0.5;
-        const rawDepth = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
-        const depth    = Math.max(rawDepth, swOuter + def.w * 0.5 + 0.1);
+        const center = cursor + def.d * 0.5;
+        // frontFace = distance from road centre to the building's road-facing wall.
+        // Must always exceed swOuter so the building (and its 1.65m awning overhang)
+        // never sits on the sidewalk, kerb, or road.
+        // Positive easement moves the building further back; negative easement is ignored.
+        const frontFace = swOuter + 1.8 + Math.max(0, def.easement) + Math.random() * 2;
+        const depth     = frontFace + def.w * 0.5;
         placements[s] = { def, center, depth };
         cursor += def.d + MIN_GAP;
       }
@@ -235,9 +239,9 @@ export class BuildingsSegment extends RaceSegment {
         const forceMission = mo && !mo._applied && (canEnter || mo.force) && (mo.forceSide == null || mo.forceSide === s);
         const def = forceMission ? { ...baseDef, enterable: true, ...mo.props } : baseDef;
         if (forceMission) { mo._applied = true; mo._side = s; }
-        const center   = cursor + def.d * 0.5;
-        const rawDepth = swOuter + def.w * 0.5 + 0.5 + Math.random() * 2 + def.easement;
-        const depth    = Math.max(rawDepth, swOuter + def.w * 0.5 + 0.1);
+        const center = cursor + def.d * 0.5;
+        const frontFace = swOuter + 1.8 + Math.max(0, def.easement) + Math.random() * 2;
+        const depth     = frontFace + def.w * 0.5;
         placements[s] = { def, center, depth };
         cursor += def.d + MIN_GAP;
       }
