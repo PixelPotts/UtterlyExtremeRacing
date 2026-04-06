@@ -49,6 +49,15 @@ const _dummyPlaqueMat = new THREE.MeshLambertMaterial({
   side: THREE.DoubleSide,
 });
 
+// Pre-shared DoubleSide variants of BLDG_MATS — reused by ALL enterable buildings.
+// Textures are applied alongside BLDG_MATS via applyTex() in index.html.
+// Avoids per-building material clones which each need their own GPU shader compile.
+export const BLDG_MATS_DS = BLDG_MATS.map(m => {
+  const ds = m.clone();
+  ds.side = THREE.DoubleSide;
+  return ds;
+});
+
 export const BLDG_EXTRA_WARMUP_MATS = [...AWNING_MATS, _dummyPlaqueMat];
 
 // Shared pilaster geometry — one instanced mesh per building (4 instances)
@@ -211,9 +220,8 @@ export class Building {
 
     } else {
       // Enterable — single body (door-hole geometry needs one mesh)
-      const bodyMat = BLDG_MATS[mat].clone();
-      bodyMat.side  = THREE.DoubleSide;
-      body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), bodyMat);
+      // Reuse pre-shared DoubleSide variant — avoids per-building shader compile
+      body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), BLDG_MATS_DS[mat]);
       body.castShadow = body.receiveShadow = true;
       group.add(body);
       group.userData.enterable = true;

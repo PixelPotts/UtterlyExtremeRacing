@@ -319,7 +319,7 @@ import { RockMonster, WARMUP_MATS as RM_WARMUP_MATS }    from './assets/rockmons
 import { EtherComposer } from './assets/ether.js';
 import { Refinery, RefineryLightPool, WARMUP_MATS as REF_WARMUP_MATS } from './assets/refinery.js';
 import { RefineryBuilding, LargePipeRun, RoadCatwalk, HoldingTankPair, ToxicPillar, SceneryLightPool, SCENERY_WARMUP_MATS } from './assets/refinery_scenery.js';
-import { Building, BLDG_MATS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
+import { Building, BLDG_MATS, BLDG_MATS_DS, TRIM_MAT, BLDG_EXTRA_WARMUP_MATS } from './assets/buildings.js';
 import { SIGN_WARMUP_MATS } from './assets/neon_signs.js';
 import { DOOR_WARMUP_MATS } from './assets/door.js';
 import { BuildingInterior }     from './assets/building_interior.js';
@@ -1340,6 +1340,7 @@ scene.add(tunnelFill);
   const _wMats = [
     ...Object.values(M).filter(Boolean),
     ...BLDG_MATS,
+    ...BLDG_MATS_DS,  // DoubleSide variants used by enterable buildings
     TRIM_MAT,
     ...SIGN_WARMUP_MATS,          // neon signs: 30 MeshStandardMaterial variants (map+emissiveMap)
     ...DOOR_WARMUP_MATS,          // door frame, panels (DoubleSide), window glass (transparent), frame
@@ -1421,12 +1422,14 @@ AssetRegistry.preloadAll(_onAsset);
 {
   const tl = new THREE.TextureLoader();
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
-  const applyTex = (mat, url, rx, ry, tint, normalUrl, normalScale) => {
+  // also2: optional second material that shares the same texture objects (no extra load)
+  const applyTex = (mat, url, rx, ry, tint, normalUrl, normalScale, also2 = null) => {
     tl.load(url, tex => {
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.repeat.set(rx, ry);
       tex.anisotropy = maxAniso;
       mat.map = tex; mat.color.setHex(tint); mat.needsUpdate = true;
+      if (also2) { also2.map = tex; also2.color.setHex(tint); also2.needsUpdate = true; }
       _onAsset();
     });
     if (normalUrl) tl.load(normalUrl, tex => {
@@ -1435,6 +1438,7 @@ AssetRegistry.preloadAll(_onAsset);
       tex.anisotropy = maxAniso;
       mat.normalMap = tex;
       mat.normalScale.set(normalScale, normalScale);
+      if (also2) { also2.normalMap = tex; also2.normalScale.set(normalScale, normalScale); also2.needsUpdate = true; }
       mat.needsUpdate = true;
     });
   };
@@ -1452,7 +1456,7 @@ AssetRegistry.preloadAll(_onAsset);
     ['assets/textures/concrete_clean.jpg', 0xCCCCCC, 2, 3, 'assets/textures/concrete_clean_normal.jpg', 1.0],
     ['assets/textures/concrete_dark.jpg',  0xAAAAAA, 2, 3, 'assets/textures/concrete_dark_normal.jpg',  1.0],
     ['assets/textures/facade.jpg',         0xDDCCBB, 2, 4, 'assets/textures/facade_normal.jpg',         1.2],
-  ].forEach(([url, tint, rx, ry, nurl, ns], i) => applyTex(BLDG_MATS[i], url, rx, ry, tint, nurl, ns));
+  ].forEach(([url, tint, rx, ry, nurl, ns], i) => applyTex(BLDG_MATS[i], url, rx, ry, tint, nurl, ns, BLDG_MATS_DS[i]));
 
   // Trim / cornice / pilaster — light precast concrete look
   applyTex(TRIM_MAT, 'assets/textures/concrete_clean.jpg', 1.5, 2, 0xE0D8C8,
