@@ -403,6 +403,16 @@ let _dbgFrameN    = 0;   // frame counter for periodic ambient log
 let _dbgLastTex   = 0;   // renderer.info.memory.textures — logged when it changes
 let _dbgLastGeo   = 0;   // renderer.info.memory.geometries — logged when it changes
 
+// ── Pursuer debug logger → pursuer.log ──────────────────
+const _PDBG = (() => {
+  const BASE = 'http://localhost:9999';
+  const buf = [];
+  let timer = null;
+  function flush() { if (!buf.length) return; fetch(`${BASE}/pursuer-log`, { method:'POST', body: buf.splice(0).join('\n') }).catch(()=>{}); timer = null; }
+  function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 80); }
+  return { log };
+})();
+
 // ── EtherCoil + EtherComposer compile/render debug hooks ────────────────────
 // TODO: tesla coils temporarily disabled — setEcDbg((matName) => _DBG.log(`EC_COMPILE\tmat=${matName}`));
 window._etherDbg = (msg) => _DBG.log(msg);
@@ -3075,7 +3085,23 @@ _dbgInitRings();
 pickupManager = new PickupManager(scene, path, zoneTypes);
 pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
 pickupManager.on('grenade', () => { playerGrenades += 3; _updatePickupHUD(); });
-pickupManager.on('ammo',    () => { if (activeWeapon) { activeWeapon.ammo = Math.min(activeWeapon.ammo + 15, activeWeapon.maxAmmo); } _updatePickupHUD(); });
+pickupManager.on('ammo', () => {
+  _PDBG.log(`AMMO_PICKUP\tactiveWeapon=${!!activeWeapon}\tgunPickedUp=${gunPickedUp}\tammo=${activeWeapon?.ammo ?? 'N/A'}`);
+  if (!activeWeapon && gunPickedUp) {
+    // Gun was dropped (empty timer) but player found ammo — restore weapon
+    _PDBG.log('AMMO_PICKUP\trestoring activeWeapon (gun was dropped)');
+    activeWeapon = new Weapon(scene, { ammo: 0, rateOfFire: 12, bulletSpeed: 130 });
+    gunEmptyTimer = -1;
+    document.getElementById('ammo-hud').style.display = 'block';
+  }
+  if (activeWeapon) {
+    activeWeapon.ammo = Math.min(activeWeapon.ammo + 15, activeWeapon.maxAmmo);
+    _PDBG.log(`AMMO_PICKUP\tammo now=${activeWeapon.ammo}`);
+  } else {
+    _PDBG.log('AMMO_PICKUP\tWARN no activeWeapon and gunPickedUp=false — ammo lost');
+  }
+  _updatePickupHUD();
+});
 for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
 pickupFrontier = DECO_AHEAD + 6;
 
@@ -3113,8 +3139,10 @@ _setupGunPickup();
 
 // Auto-equip gun (called when the 'neutralize' mission obj activates)
 function _autoEquipGun() {
-  if (gunPickedUp) return; // already have it
+  _PDBG.log(`AUTO_EQUIP_GUN\tgunPickedUp=${gunPickedUp}\tgunMesh=${!!gunMesh}\tactiveWeapon=${!!activeWeapon}`);
+  if (gunPickedUp) { _PDBG.log('AUTO_EQUIP_GUN\tskipped already picked up'); return; }
   gunPickedUp = true;
+  gunEmptyTimer = -1; // cancel any drop countdown
   if (gunGlow)  { scene.remove(gunGlow);  gunGlow.geometry.dispose();  gunGlow.material.dispose();  gunGlow  = null; }
   if (gunLight) { gunLight.position.set(0, -500, 0); gunLight.intensity = 0; gunLight = null; }
   if (gunMesh) {
@@ -3123,17 +3151,23 @@ function _autoEquipGun() {
     gunMesh.scale.setScalar(0.85);
     gunMesh.position.set(1.5, 0.52, 0.1);
     player.group.add(gunMesh);
+    _PDBG.log('AUTO_EQUIP_GUN\tgunMesh parented to player');
+  } else {
+    _PDBG.log('AUTO_EQUIP_GUN\tWARN gunMesh is null — no visual');
   }
   activeWeapon = new Weapon(scene, { ammo: 30, rateOfFire: 12, bulletSpeed: 130 });
   _dryFirePlayed = false;
   document.getElementById('ammo-hud').style.display = 'block';
+  _PDBG.log('AUTO_EQUIP_GUN\tdone — activeWeapon created ammo=30');
 }
 
 // Arm pursuer spawn sequence (called when reach_contact objective completes)
 function _armPursuerSequence() {
+  _PDBG.log(`ARM_PURSUER_SEQ\tplayerSeg=${player?.seg}\tspeed=${player?.speed?.toFixed(2)}`);
   _pursuerArmed      = true;
   _pursuerDepartTimer = -1;
   _autoEquipGun();
+  _PDBG.log('ARM_PURSUER_SEQ\twaiting for player to drive away (speed>4 && !inBuilding)');
 }
 
 // ── Player & AI Vehicles ───────────────────────────────
@@ -3919,6 +3953,7 @@ function _updateMissionHUD() {
 function enterBuilding(b) {
   inBuilding   = true;
   _currentBldg = b;
+  _PDBG.log(`ENTER_BLDG\tmissionRole=${b.group.userData.missionRole ?? 'none'}\tmissionId=${b.group.userData.missionId ?? '-'}\tobjId=${b.group.userData.missionObjId ?? '-'}`);
 
   // Ensure interior exists (may not if player warped in without passing intent radius)
   if (!b.interior) {
@@ -3956,14 +3991,21 @@ function enterBuilding(b) {
       if (result.briefing?.length) DialogSystem.show(result.briefing);
     }
   } else if (_mRole === 'objective') {
-    const result = MissionSystem.completeObjective(b.group.userData.missionId, b.group.userData.missionObjId);
+    const _mid = b.group.userData.missionId;
+    const _oid = b.group.userData.missionObjId;
+    _PDBG.log(`ENTER_BLDG_OBJ\tmissionId=${_mid}\tobjId=${_oid}\tmRole=${_mRole}`);
+    const result = MissionSystem.completeObjective(_mid, _oid);
+    _PDBG.log(`ENTER_BLDG_OBJ\tcompleteObjective result=${result === null ? 'null(more objs)' : 'object(done)'}`);
     Minimap.removeMarker(_mKey);
     const mk = _missionMarkers.get(_mKey);
     if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
     _handleMissionResult(result);
     // Arm pursuer spawn when the contact meeting completes
-    if (b.group.userData.missionId === 'package_run' && b.group.userData.missionObjId === 'reach_contact') {
+    if (_mid === 'package_run' && _oid === 'reach_contact') {
+      _PDBG.log('ENTER_BLDG_OBJ\treach_contact match — arming pursuer sequence');
       _armPursuerSequence();
+    } else {
+      _PDBG.log(`ENTER_BLDG_OBJ\tno pursuer arm (mid=${_mid} oid=${_oid})`);
     }
   }
 }
@@ -4294,17 +4336,31 @@ function frame() {
       if (!inBuilding && player.speed > 4) {
         if (_pursuerDepartTimer < 0) {
           _pursuerDepartTimer = 5.0;
+          _PDBG.log(`PURSUER_DEPART\tplayer departed — 5s countdown started\tseg=${player.seg}\tspeed=${player.speed.toFixed(2)}`);
         } else {
           _pursuerDepartTimer -= dt;
           if (_pursuerDepartTimer <= 0) {
-            pursuerSquad = new PursuerSquad(scene, path, {
-              SLEN,
-              onKill: () => _handleMissionResult(MissionSystem.notifyEvent('enemy_hit')),
-            });
-            pursuerSquad.spawn(player.seg);
+            _PDBG.log(`PURSUER_SPAWN\tspawning squad behind seg=${player.seg}`);
+            try {
+              pursuerSquad = new PursuerSquad(scene, path, {
+                SLEN,
+                onKill: (pv) => {
+                  _PDBG.log(`PURSUER_KILL\tpursuer eliminated — notifyEvent enemy_hit`);
+                  _handleMissionResult(MissionSystem.notifyEvent('enemy_hit'));
+                },
+              });
+              pursuerSquad.spawn(player.seg);
+              _PDBG.log(`PURSUER_SPAWN\tspawned OK — pursuers=${pursuerSquad.pursuers.length}`);
+            } catch(e) {
+              _PDBG.log(`PURSUER_SPAWN\tERROR ${e.message}`);
+              console.error('PursuerSquad spawn error:', e);
+            }
             _pursuerArmed = false;
           }
         }
+      } else if (_dbgFrameN % 180 === 0) {
+        // Log state every 3s while armed but not yet departing
+        _PDBG.log(`PURSUER_WAIT\tarmed=true inBuilding=${inBuilding} speed=${player.speed.toFixed(2)} departTimer=${_pursuerDepartTimer.toFixed(1)}`);
       }
     }
 
