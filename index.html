@@ -332,6 +332,7 @@ import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
 import { ExclamationMarker, ShopNPC, makeShopCounter } from './assets/props.js';
+import { PursuerSquad } from './assets/pursuer.js';
 
 // ── Live-tunable parameters (editable via Options screen) ──────────────────
 const PARAMS = window.PARAMS = {
@@ -1816,6 +1817,11 @@ let activeWeapon = null;
 let _dryFirePlayed = false;
 const GUN_SEG = 8; // path[8] ≈ 104 m from start
 
+// ── Pursuer squad state ─────────────────────────────────
+let pursuerSquad       = null;
+let _pursuerArmed      = false;   // true after reach_contact completes
+let _pursuerDepartTimer = -1;     // counts down 5s from first movement
+
 // ── Pickup / powerup state ──────────────────────────────
 let nitroCharges    = 0;
 let playerGrenades  = 0;
@@ -3105,6 +3111,31 @@ function _setupGunPickup() {
 }
 _setupGunPickup();
 
+// Auto-equip gun (called when the 'neutralize' mission obj activates)
+function _autoEquipGun() {
+  if (gunPickedUp) return; // already have it
+  gunPickedUp = true;
+  if (gunGlow)  { scene.remove(gunGlow);  gunGlow.geometry.dispose();  gunGlow.material.dispose();  gunGlow  = null; }
+  if (gunLight) { gunLight.position.set(0, -500, 0); gunLight.intensity = 0; gunLight = null; }
+  if (gunMesh) {
+    gunMesh.traverse(c => { if (c.isMesh) c.material.emissiveIntensity = 0.06; });
+    gunMesh.rotation.set(0, 0, 0);
+    gunMesh.scale.setScalar(0.85);
+    gunMesh.position.set(1.5, 0.52, 0.1);
+    player.group.add(gunMesh);
+  }
+  activeWeapon = new Weapon(scene, { ammo: 30, rateOfFire: 12, bulletSpeed: 130 });
+  _dryFirePlayed = false;
+  document.getElementById('ammo-hud').style.display = 'block';
+}
+
+// Arm pursuer spawn sequence (called when reach_contact objective completes)
+function _armPursuerSequence() {
+  _pursuerArmed      = true;
+  _pursuerDepartTimer = -1;
+  _autoEquipGun();
+}
+
 // ── Player & AI Vehicles ───────────────────────────────
 const playerLane = Math.floor(Math.random() * 4);
 let player = new PlayerVehicle(scene, path, {
@@ -3930,6 +3961,10 @@ function enterBuilding(b) {
     const mk = _missionMarkers.get(_mKey);
     if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
     _handleMissionResult(result);
+    // Arm pursuer spawn when the contact meeting completes
+    if (b.group.userData.missionId === 'package_run' && b.group.userData.missionObjId === 'reach_contact') {
+      _armPursuerSequence();
+    }
   }
 }
 
@@ -4254,6 +4289,52 @@ function frame() {
     // else if (_btState === 'active') { boxTruck.update(...) }
     // else if (_btState === 'fleeing') { boxTruck.update(...); boxTruck.dispose() }
 
+    // ── Pursuer spawn countdown ────────────────────────────────────────────
+    if (_pursuerArmed && !pursuerSquad) {
+      if (!inBuilding && player.speed > 4) {
+        if (_pursuerDepartTimer < 0) {
+          _pursuerDepartTimer = 5.0;
+        } else {
+          _pursuerDepartTimer -= dt;
+          if (_pursuerDepartTimer <= 0) {
+            pursuerSquad = new PursuerSquad(scene, path, {
+              SLEN,
+              onKill: () => _handleMissionResult(MissionSystem.notifyEvent('enemy_hit')),
+            });
+            pursuerSquad.spawn(player.seg);
+            _pursuerArmed = false;
+          }
+        }
+      }
+    }
+
+    // ── Pursuer update + bullet hits ───────────────────────────────────────
+    if (pursuerSquad) {
+      pursuerSquad.update(dt, speedMul, getFloorY, player);
+
+      if (activeWeapon) pursuerSquad.checkBulletHit(activeWeapon.bullets);
+
+      // Pursuer bullets → player impact
+      for (const p of pursuerSquad.pursuers) {
+        if (!p.alive || !p.weapon) continue;
+        for (const b of p.weapon.bullets) {
+          const dx = b.mesh.position.x - player.x;
+          const dy = b.mesh.position.y - (player.group.position.y + 0.6);
+          const dz = b.mesh.position.z - player.z;
+          if (dx*dx + dy*dy + dz*dz < 1.8 * 1.8) {
+            player.speed = Math.max(0, player.speed * 0.72);
+            camBumpVel  += 0.9;
+            b.life       = -1;
+          }
+        }
+      }
+
+      if (!pursuerSquad.alive) {
+        pursuerSquad.dispose();
+        pursuerSquad = null;
+      }
+    }
+
     // Traffic light phase cycling
     intersections.forEach(inter => {
       inter.timer -= dt;
@@ -4374,6 +4455,7 @@ function frame() {
   // ── Player bullet → AI hit detection ────────────────────────────────────
   if (activeWeapon) {
     outer: for (const b of activeWeapon.bullets) {
+      if (b.life < 0) continue; // already consumed (e.g. hit a pursuer)
       for (const ai of aiCars) {
         const dx = b.mesh.position.x - ai.group.position.x;
         const dy = b.mesh.position.y - ai.group.position.y;
