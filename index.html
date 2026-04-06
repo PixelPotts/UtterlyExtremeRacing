@@ -2909,20 +2909,21 @@ function* addDecorations(si) {
       if (mBldg) {
         MissionSystem.registerSpawned(mSpawn, si, { x: mBldg.position.x, z: mBldg.position.z });
         Minimap.addMarker(mSpawn._key, mBldg.position.x, mBldg.position.z, { route: mSpawn.role === 'objective' });
-        // Shop prop: eager interior + NPC + counter
-        if (mSpawn.props?.isShop) {
-          const eb = _enterableBuildings.find(e => e.group === mBldg);
-          if (eb) {
-            eb.interior = new BuildingInterior(eb.def, eb.side);
-            eb.interior.build(eb.group);
-            const floorY    = -eb.h / 2;
-            const facingAng = -eb.side * Math.PI * 0.5;
-            const npcX      =  eb.side * (eb.w / 2 - 1.1);
-            eb.shopNpc      = new ShopNPC(eb.group, npcX, floorY, 0, facingAng);
-            const counter   = makeShopCounter(eb.side, eb.w, eb.d, floorY);
-            eb.group.add(counter);
-            eb.shopCounter  = counter;
-          }
+        // Eagerly build interior for all mission buildings (avoids hitch on approach)
+        const eb = _enterableBuildings.find(e => e.group === mBldg);
+        if (eb && !eb.interior) {
+          eb.interior = new BuildingInterior(eb.def, eb.side);
+          eb.interior.build(eb.group);
+        }
+        // Shop-only extras: NPC + counter
+        if (mSpawn.props?.isShop && eb) {
+          const floorY    = -eb.h / 2;
+          const facingAng = -eb.side * Math.PI * 0.5;
+          const npcX      =  eb.side * (eb.w / 2 - 1.1);
+          eb.shopNpc      = new ShopNPC(eb.group, npcX, floorY, 0, facingAng);
+          const counter   = makeShopCounter(eb.side, eb.w, eb.d, floorY);
+          eb.group.add(counter);
+          eb.shopCounter  = counter;
         }
         // Exclamation marker for all mission buildings (giver and objective)
         const markerY = mBldg.position.y + (mBldg.userData.h ?? 15) / 2 + 3.5;
