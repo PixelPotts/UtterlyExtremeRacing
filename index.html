@@ -387,11 +387,13 @@ const ZONE_MAX_SEGS = 50;  // ~650 m max per zone
 
 // ── Debug logger (run: node debug-server.js) ───────────
 const _DBG = (() => {
-  const URL = 'http://localhost:9999/log';
+  const BASE = 'http://localhost:9999';
   const buf = [];
   let timer = null;
-  function flush() { if (!buf.length) return; fetch(URL, { method:'POST', body: buf.splice(0).join('\n') }).catch(()=>{}); timer = null; }
+  function flush() { if (!buf.length) return; fetch(`${BASE}/log`, { method:'POST', body: buf.splice(0).join('\n') }).catch(()=>{}); timer = null; }
   function log(msg) { buf.push(`${performance.now().toFixed(1)}\t${msg}`); if (!timer) timer = setTimeout(flush, 300); }
+  // Clear log on every page load so each run starts fresh
+  fetch(`${BASE}/clear`, { method:'POST' }).catch(() => {});
   return { log };
 })();
 let _dbgLastProg  = 0;
