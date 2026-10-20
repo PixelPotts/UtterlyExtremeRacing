@@ -233,8 +233,8 @@ function _stopPortraitFX() {
 
 function _loadPortrait(src, color) {
   _pColor = color || '#0a0a12';
+  _pImg = null;   // a missing image falls back to the colour, not the last speaker
   if (!src) {
-    _pImg = null;
     if (_glitchState === 'normal') _drawNormal();
     return;
   }

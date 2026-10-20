@@ -1,59 +1,46 @@
 /**
- * level1.js — Mission script for Level 1
+ * level1.js — Mission chain for Level 1
  *
- * Ordered stage array. The MissionSystem processes these in dependency order
- * (prerequisite chain), not necessarily array order.
- *
- * Stages run across the full level — the level does not end until all complete.
- * Each spawnable stage is injected into the next valid zone of the required type
- * and re-queued into every subsequent valid zone until the player completes it.
+ * Each story stop is a mission whose giver is the building; entering it plays
+ * the story as the briefing and completes the mission (no objectives). The
+ * next stop's giver then spawns in the next city zone. The package run closes
+ * the level; finishing it starts Level 2.
  */
 
-import { DOOR_ENTRY }   from '../stories/door_entry.js';
-import { GREEN_AWNING } from '../stories/green_awning.js';
-import { SHOP_RESCUE }  from '../stories/shop_rescue.js';
+import { DOOR_ENTRY }    from '../stories/door_entry.js';
+import { GREEN_AWNING }  from '../stories/green_awning.js';
+import { SHOP_RESCUE }   from '../stories/shop_rescue.js';
+import { TEST_MISSIONS } from './test_mission.js';
 
-export const LEVEL1_MISSION = [
-  // ── Stage 0: Yellow door ───────────────────────────────────────────────────
-  // First enterable building in any city zone. Decker meets Jane.
+export const LEVEL1_MISSIONS = [
+  // ── Stop 1: Yellow door — Decker meets Jane ──────────────────────────────
   {
     id:           'door_entry',
-    prerequisite: null,             // active from level start
-    spawn: {
-      zone:   'buildings',
-      offset: 8,
-      props:  { enterable: true },
-    },
-    trigger: { type: 'enter_building' },
-    story:   DOOR_ENTRY,
+    name:         'Safe House',
+    prerequisite: null,
+    giver:        { spawn: { zone: 'buildings', offset: 8, props: { enterable: true } } },
+    briefing:     DOOR_ENTRY,
   },
 
-  // ── Stage 1: Green awning ──────────────────────────────────────────────────
-  // Next city zone after door_entry completes. Decker meets Termo.
+  // ── Stop 2: Green awning — Decker meets Termo ────────────────────────────
   {
     id:           'green_awning',
+    name:         'The Dealer',
     prerequisite: 'door_entry',
-    spawn: {
-      zone:   'buildings',
-      offset: 8,
-      props:  { enterable: true, awningMatIdx: 2 },  // index 2 = green in AWNING_MATS
-    },
-    trigger: { type: 'enter_building' },
-    story:   GREEN_AWNING,
+    giver:        { spawn: { zone: 'buildings', offset: 8, props: { enterable: true, awningMatIdx: 2 } } },  // 2 = green
+    briefing:     GREEN_AWNING,
   },
 
-  // ── Stage 2: Distressed shop ───────────────────────────────────────────────
-  // Next city zone after green_awning. Civilian Mila with patrol-gap intel.
+  // ── Stop 3: Distressed shop — Mila's patrol-gap intel ────────────────────
   // awningMatIdx:7 = white/green stripes; isShop:true = open interior + NPC
   {
     id:           'shop_rescue',
+    name:         'Lockdown',
     prerequisite: 'green_awning',
-    spawn: {
-      zone:   'buildings',
-      offset: 8,
-      props:  { enterable: true, awningMatIdx: 7, isShop: true },
-    },
-    trigger: { type: 'enter_building' },
-    story:   SHOP_RESCUE,
+    giver:        { spawn: { zone: 'buildings', offset: 8, props: { enterable: true, awningMatIdx: 7, isShop: true } } },
+    briefing:     SHOP_RESCUE,
   },
+
+  // ── Finale: Package Run — contact, then two pursuers ─────────────────────
+  { ...TEST_MISSIONS[0], prerequisite: 'shop_rescue' },
 ];

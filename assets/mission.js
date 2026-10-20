@@ -166,7 +166,8 @@ class MissionSystemImpl {
 
   /**
    * Called when player enters a giver building.
-   * Returns { briefing } or null.
+   * Returns { briefing, completion? } or null; completion is set when the
+   * mission has no objectives (same shape as completeObjective's result).
    */
   acceptMission(missionId) {
     const m = this._missions.find(m => m.id === missionId);
@@ -180,9 +181,10 @@ class MissionSystemImpl {
       if (lock._key === `${missionId}:giver`) { this._locked.delete(si); break; }
     }
 
-    // Arm first objective
+    // Arm first objective; a mission without objectives completes on accept
     const first = (m.objectives ?? [])[0];
-    if (first) this._objState.set(`${missionId}:${first.id}`, 'active');
+    if (!first) return { briefing: m.briefing ?? null, completion: this._completeMission(m) };
+    this._objState.set(`${missionId}:${first.id}`, 'active');
 
     return { briefing: m.briefing ?? null };
   }
@@ -315,7 +317,10 @@ class MissionSystemImpl {
       return null; // More to go — no result yet
     }
 
-    // All objectives done
+    return this._completeMission(m);
+  }
+
+  _completeMission(m) {
     this._mState.set(m.id, 'complete');
     this._timers.delete(m.id);
 

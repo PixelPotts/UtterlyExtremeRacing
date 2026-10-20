@@ -167,7 +167,7 @@ canvas { display: block; cursor: none; }
 <div id="mission-hud"><div id="mission-name"></div><div id="mission-obj"></div><div id="mission-timer"></div></div>
 <canvas id="gauges"  width="220" height="130"></canvas>
 <canvas id="minimap" width="200" height="200"></canvas>
-<div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; G grenade &nbsp; SPACE look back &nbsp; F fire &nbsp; mouse freelook</div>
+<div id="tip">A/D steer &nbsp; W accelerate &nbsp; S brake &nbsp; SHIFT nitro &nbsp; G grenade &nbsp; SPACE look back &nbsp; F fire &nbsp; R get out &nbsp; mouse freelook</div>
 <div id="lights"><div id="light-bar">
   <div class="bulb" id="bl-red"></div>
   <div class="bulb" id="bl-yellow"></div>
@@ -327,7 +327,8 @@ import { Walker } from './assets/walker.js';
 import { Sky } from './assets/sky.js';
 import { DialogSystem }   from './assets/dialog.js';
 import { MissionSystem }  from './assets/mission.js';
-import { TEST_MISSIONS }  from './assets/missions/test_mission.js';
+import { LEVEL1_MISSIONS } from './assets/missions/level1.js';
+import { LEVEL1_INTRO }   from './assets/stories/level1_intro.js';
 import { PickupManager } from './assets/pickups.js';
 import { Grenade } from './assets/throwables.js';
 import { Minimap }        from './assets/minimap.js';
@@ -3781,8 +3782,8 @@ function startGame() {
   const ldr = document.getElementById('loader');
   if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
   frame();
-  if (currentLevel === 1) MissionSystem.load(TEST_MISSIONS);
-  startCountdown();
+  if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSIONS);
+  DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
 }
 window._startRace = startGame;
 
@@ -3851,7 +3852,7 @@ function toggleWalkMode() {
     walker?.dispose();
     walker = null;
     document.exitPointerLock();
-    tipEl.textContent = 'A/D steer \u00a0 W accelerate \u00a0 S brake \u00a0 SHIFT nitro \u00a0 G grenade \u00a0 SPACE look back \u00a0 F fire \u00a0 mouse freelook';
+    tipEl.textContent = 'A/D steer \u00a0 W accelerate \u00a0 S brake \u00a0 SHIFT nitro \u00a0 G grenade \u00a0 SPACE look back \u00a0 F fire \u00a0 R get out \u00a0 mouse freelook';
     hudEl.style.display     = '';
     gaugesEl.style.display  = '';
     _posHudEl.style.display = '';
@@ -4001,12 +4002,14 @@ function enterBuilding(b) {
       if (mk) { mk.dispose(); _missionMarkers.delete(_mKey); }
       // Re-scan already-generated zones from decoFrontier forward.
       // onZoneStart may have fired before accept (AHEA=30, ZONE_MIN_SEGS=30),
-      // so objective spawns need to be queued retroactively.
+      // so objective spawns need to be queued retroactively. A mission that
+      // completed on accept skips this: the next story stop waits for the next city zone.
       let _rz = null;
-      for (let _rs = decoFrontier; _rs < zoneTypes.length; _rs++) {
+      for (let _rs = decoFrontier; !result.completion && _rs < zoneTypes.length; _rs++) {
         if (zoneTypes[_rs] !== _rz) { _rz = zoneTypes[_rs]; MissionSystem.onZoneStart(_rz, _rs); }
       }
-      if (result.briefing?.length) DialogSystem.show(result.briefing);
+      const _brief = result.briefing?.length ? DialogSystem.show(result.briefing) : Promise.resolve();
+      if (result.completion) _brief.then(() => _handleMissionResult(result.completion));
     }
   } else if (_mRole === 'objective') {
     const _mid = b.group.userData.missionId;
