@@ -306,7 +306,7 @@ import { KillBot1, preloadKillBot1 } from './assets/killbot1.js';
 import { AssetRegistry } from './assets/assetRegistry.js';
 import { ObjectPool }    from './assets/objectPool.js';
 import { WorkQueue }     from './assets/workQueue.js';
-import { SEGMENT_TYPES, ZONE_PROBS,
+import { SEGMENT_TYPES, ZONE_WEIGHTS,
          KERB_NONE, KERB_RED_WHITE, KERB_CONCRETE, KERB_DIRT } from './assets/segments.js';
 import { SEGMENT_TYPES_L2 }                                    from './assets/segments_l2.js';
 import { makeCastleSpawner }                                   from './assets/castle.js';
@@ -1533,8 +1533,10 @@ function tickZone() {
       curZone = z;
       zoneLeft = n - 1;
     } else {
-      const _zones = ZONE_PROBS.map(([z]) => z).filter(z => z !== curZone);
-      curZone = _zones[Math.floor(Math.random() * _zones.length)];
+      // Weighted pick, never the same zone twice in a row
+      const _zones = Object.entries(ZONE_WEIGHTS).filter(([z]) => z !== curZone);
+      let _r = Math.random() * _zones.reduce((sum, [, w]) => sum + w, 0);
+      curZone = (_zones.find(([, w]) => (_r -= w) < 0) ?? _zones[0])[0];
       zoneLeft = ZONE_MIN_SEGS + Math.floor(Math.random() * (ZONE_MAX_SEGS - ZONE_MIN_SEGS + 1)) - 1;
     }
     // zoneTypes.length = segment index where this zone starts (push happens after)

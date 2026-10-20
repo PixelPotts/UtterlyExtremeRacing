@@ -514,14 +514,15 @@ export const SEGMENT_TYPES = {
   castle:       new CastleSegment(),
 };
 
-export const ZONE_PROBS = [
-  ['castle',    0.09],  // castle zone — appears first in random pool
-  ['buildings', 0.27],
-  ['trees',     0.45],
-  ['mountains', 0.54],
-  ['ether',     0.61],  // rare dimensional rift
-  ['toxic',     0.68],  // toxic sludge refinery corridor
-  ['tunnel',    0.79],
-  ['bridge',    0.89],
-  ['dirt',      1.00],
-];
+// Relative odds of each zone when the next zone is picked at random.
+export const ZONE_WEIGHTS = {
+  castle:    9,
+  buildings: 18,
+  trees:     18,
+  mountains: 9,
+  ether:     7,   // rare dimensional rift
+  toxic:     7,   // toxic sludge refinery corridor
+  tunnel:    11,
+  bridge:    10,
+  dirt:      11,
+};
