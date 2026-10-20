@@ -386,8 +386,12 @@ const KEEP       = 10;   // segments behind                 [DBG reduced from 28
 const ZONE_MIN_SEGS = 30;  // ~390 m min per zone
 const ZONE_MAX_SEGS = 50;  // ~650 m max per zone
 
+// ── Debug mode (?debug): log server, frontier rings, door markers, window.__game ──
+const DEBUG = new URLSearchParams(location.search).has('debug');
+
 // ── Debug logger (run: node debug-server.js) ───────────
 const _DBG = (() => {
+  if (!DEBUG) return { log() {} };
   const BASE = 'http://localhost:9999';
   const buf = [];
   let timer = null;
@@ -405,6 +409,7 @@ let _dbgLastGeo   = 0;   // renderer.info.memory.geometries — logged when it c
 
 // ── Pursuer debug logger → pursuer.log ──────────────────
 const _PDBG = (() => {
+  if (!DEBUG) return { log() {} };
   const BASE = 'http://localhost:9999';
   const buf = [];
   let timer = null;
@@ -415,7 +420,7 @@ const _PDBG = (() => {
 
 // ── EtherCoil + EtherComposer compile/render debug hooks ────────────────────
 // TODO: tesla coils temporarily disabled — setEcDbg((matName) => _DBG.log(`EC_COMPILE\tmat=${matName}`));
-window._etherDbg = (msg) => _DBG.log(msg);
+if (DEBUG) window._etherDbg = (msg) => _DBG.log(msg);
 
 // ── Pink/orange debug rings — show deco frontier + drop frontier ───────────
 // Created lazily after scene exists (see _dbgInitRings below).
@@ -3080,7 +3085,7 @@ for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i
 _DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
 { const _fa0 = performance.now(); _decoQueue.flushAll(); _DBG.log(`FLUSH_ALL_END_L1\tms=${(performance.now()-_fa0).toFixed(1)}\tscene=${scene.children.length}\tlights=${scene.children.filter(c=>c.isLight).length}`); }
 let decoFrontier = DECO_AHEAD + 6; // next seg to decorate
-_dbgInitRings();
+if (DEBUG) _dbgInitRings();
 
 pickupManager = new PickupManager(scene, path, zoneTypes);
 pickupManager.on('nitro',   () => { nitroCharges++; _updatePickupHUD(); });
@@ -3214,6 +3219,14 @@ let aiCars   = aiLanes.map((lane, idx) => {
   ai.group.rotation.y = Math.PI;
   return ai;
 });
+
+if (DEBUG) window.__game = {
+  get player() { return player; }, get aiCars() { return aiCars; }, get level() { return currentLevel; },
+  path, zoneTypes, scene, MissionSystem,
+  get buildings() { return _enterableBuildings; },
+  enter(b) { if (!walkMode) toggleWalkMode(); enterBuilding(b); },   // warp into a building
+  event(name) { _handleMissionResult(MissionSystem.notifyEvent(name)); },
+};
 
 // ── Reticle ────────────────────────────────────────────
 const Reticle = {
@@ -3870,6 +3883,7 @@ function _triggerIntent(b, doorX, doorZ) {
   b.interior = new BuildingInterior(b.def, b.side);
   b.interior.build(b.group);
 
+  if (!DEBUG) return;
   // Debug dot — small green sphere above the door in world space, never culled
   const dot  = new THREE.Mesh(_dotGeo, _dotMat);
   dot.position.set(doorX, b.groundY + 2.9, doorZ);
@@ -3971,7 +3985,7 @@ function enterBuilding(b) {
   walker.y  = fy;
   walker.vy = 0;
 
-  _logBuildingEntry(b);
+  if (DEBUG) _logBuildingEntry(b);
 
   const _mRole = b.group.userData.missionRole;
   const _mKey  = b.group.userData._missionSpawnKey;
@@ -4720,7 +4734,7 @@ function frame() {
   }
 
   _dbgUpdateRings();
-  { const _fms = performance.now() - _ft0;
+  if (DEBUG) { const _fms = performance.now() - _ft0;
     const _pc  = renderer.info.programs?.length ?? 0;
     const _sc  = scene.children.length;
     _dbgFrameN++;
@@ -5207,7 +5221,7 @@ function frameL2() {
   if (!walkMode) drawGauges();
   Minimap.update(path, player.seg, player.x, player.z, player.angle);
   _dbgUpdateRings();
-  { const _fms = performance.now() - _ft0;
+  if (DEBUG) { const _fms = performance.now() - _ft0;
     const _pc  = renderer.info.programs?.length ?? 0;
     const _sc  = scene.children.length;
     _dbgFrameN++;
