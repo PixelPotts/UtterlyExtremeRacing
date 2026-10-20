@@ -1520,8 +1520,10 @@ let starsMesh = null;
 // ── Zone system ────────────────────────────────────────
 const zoneTypes = [];
 let curZone = 'start', zoneLeft = 9;  // 10-seg straight opening stretch
-// Planned zone sequence consumed after the start zone, before going random.
-const _zonePlan = [['buildings', 40], ['dirt', 35], ['buildings', 40], ['dirt', 35], ['buildings', 40]];
+// Planned zones after the start zone, before going random: one city zone so the
+// first mission giver shows up early. ?debug&zones=toxic,ether forces a sequence.
+const _forcedZones = DEBUG ? new URLSearchParams(location.search).get('zones') : null;
+const _zonePlan = _forcedZones ? _forcedZones.split(',').map(z => [z, 40]) : [['buildings', 40]];
 let _citySegCount = 0;
 const INTERSECTION_EVERY = Math.round(300 / SLEN); // ~23 segs ≈ 300 m
 
