@@ -3430,8 +3430,8 @@ const _zoneHudEl = document.getElementById('zone-hud');
 const _ZONE_LABEL = {
   trees: 'Forest', buildings: 'City', tunnel: 'Tunnel', dirt: 'Dirt',
   bridge: 'Bridge', intersection: 'City', start: 'Start',
+  castle: 'Castle', mountains: 'Mountains', ether: 'Static', toxic: 'Refinery',
   neonRoad: 'Neon Road', neonRing: 'Neon Road', splitRoad: 'Split Road', hills: 'Hills',
-
 };
 const gaugesEl  = document.getElementById('gauges');
 const gaugesCtx = gaugesEl.getContext('2d');
@@ -4439,6 +4439,7 @@ function frame() {
   }
   if (!walkMode) drawGauges();
   Minimap.update(path, player.seg, player.x, player.z, player.angle);
+  _zoneHudEl.textContent = `L${currentLevel}  ${_ZONE_LABEL[zoneTypes[player.seg]] ?? ''}`;
 
   if (player.seg + 1 >= path.length) return;
 
