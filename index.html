@@ -1385,8 +1385,9 @@ scene.add(tunnelFill);
 AssetRegistry.register('gun', 'assets/geometry/gun.glb');
 
 // ── Loading screen progress ─────────────────────────────
-// _TOTAL is dynamic: base assets + however many GLTFs are registered.
-const _TOTAL = 13 + AssetRegistry.count();  // 9 textures + 4 audio + GLTFs
+// _TOTAL grows as each load is started (audio, textures, GLTFs). Every load is
+// started synchronously during module init, before any of them can finish.
+let _TOTAL = AssetRegistry.count();
 let _loaded = 0;
 const _audioPre = {};
 function _onAsset() {
@@ -1395,7 +1396,7 @@ function _onAsset() {
   const bar = document.getElementById('loader-bar');
   const sta = document.getElementById('loader-status');
   if (bar) bar.style.width = pct + '%';
-  if (_loaded >= _TOTAL) {
+  if (_loaded === _TOTAL) {
     if (sta) sta.textContent = 'COMPILING SHADERS...';
     _precompileShaders(sta);
   } else {
@@ -1430,7 +1431,9 @@ function _precompileShaders(sta) {
   });
 }
 // Pre-fetch audio (no AudioContext needed — just raw bytes)
-['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg', 'assets/sfx/tire_squeal.ogg'].forEach(url =>
+const _AUDIO_FILES = ['assets/sfx/engine_lo.ogg', 'assets/sfx/engine_hi.ogg', 'assets/sfx/thunder.ogg', 'assets/sfx/tire_squeal.ogg'];
+_TOTAL += _AUDIO_FILES.length;
+_AUDIO_FILES.forEach(url =>
   fetch(url).then(r => r.arrayBuffer()).then(buf => { _audioPre[url] = buf; _onAsset(); }).catch(() => _onAsset())
 );
 
@@ -1438,23 +1441,30 @@ function _precompileShaders(sta) {
 AssetRegistry.preloadAll(_onAsset);
 
 // ── Textures ───────────────────────────────────────────
+// Each file loads once; every use gets its own clone (own repeat) of the shared
+// image, so three.js uploads it to the GPU once.
 {
   const tl = new THREE.TextureLoader();
   const maxAniso = renderer.capabilities.getMaxAnisotropy();
+  const _files = {};   // url → Promise<Texture>
+  const loadTex = (url, rx, ry, onLoad) => {
+    _TOTAL++;
+    (_files[url] ??= tl.loadAsync(url)).then(src => {
+      const tex = src.clone();
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(rx, ry);
+      tex.anisotropy = maxAniso;
+      onLoad(tex);
+      _onAsset();
+    }, err => { console.warn('Texture failed to load:', url, err); _onAsset(); });
+  };
   // also2: optional second material that shares the same texture objects (no extra load)
   const applyTex = (mat, url, rx, ry, tint, normalUrl, normalScale, also2 = null) => {
-    tl.load(url, tex => {
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(rx, ry);
-      tex.anisotropy = maxAniso;
+    loadTex(url, rx, ry, tex => {
       mat.map = tex; mat.color.setHex(tint); mat.needsUpdate = true;
       if (also2) { also2.map = tex; also2.color.setHex(tint); also2.needsUpdate = true; }
-      _onAsset();
     });
-    if (normalUrl) tl.load(normalUrl, tex => {
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(rx, ry);
-      tex.anisotropy = maxAniso;
+    if (normalUrl) loadTex(normalUrl, rx, ry, tex => {
       mat.normalMap = tex;
       mat.normalScale.set(normalScale, normalScale);
       if (also2) { also2.normalMap = tex; also2.normalScale.set(normalScale, normalScale); also2.needsUpdate = true; }
@@ -1482,10 +1492,7 @@ AssetRegistry.preloadAll(_onAsset);
            'assets/textures/concrete_clean_normal.jpg', 0.7);
 
   // Red/white stripe kerb — coarse grime normal
-  tl.load('assets/textures/kerb_grime_normal.jpg', tex => {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1.5, 1);
-    tex.anisotropy = maxAniso;
+  loadTex('assets/textures/kerb_grime_normal.jpg', 1.5, 1, tex => {
     for (const mat of [M.red, M.white]) {
       mat.normalMap = tex;
       mat.normalScale.set(1.1, 1.1);
@@ -1494,10 +1501,7 @@ AssetRegistry.preloadAll(_onAsset);
   });
 
   // Dirt pile kerb — lumpy earth normal
-  tl.load('assets/textures/kerb_dirt_normal.jpg', tex => {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(1, 1);
-    tex.anisotropy = maxAniso;
+  loadTex('assets/textures/kerb_dirt_normal.jpg', 1, 1, tex => {
     M.kerbDirt.normalMap = tex;
     M.kerbDirt.normalScale.set(1.8, 1.8);
     M.kerbDirt.needsUpdate = true;
