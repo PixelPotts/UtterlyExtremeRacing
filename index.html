@@ -1628,6 +1628,9 @@ function genPt() {
   }
 }
 
+// Level 1 missions load before the first stretch of road is generated, so the
+// opening city zone already holds the first mission giver.
+MissionSystem.load(LEVEL1_MISSIONS);
 for (let i = 0; i < AHEA + KEEP + 30; i++) genPt();
 
 // ── Fixed building: 188 — always in a buildings segment at si=42 ────────────
@@ -1826,6 +1829,10 @@ function dropSeg(i) {
 const decorSeg     = {};
 const crushingTrees = [];
 const crushingPoles = [];
+const _enterableBuildings = [];   // populated by spawnBuilding for def.enterable
+
+// ── Mission world markers (stageId → ExclamationMarker) ────────────────────
+const _missionMarkers = new Map();
 
 // ── Obstacles ──────────────────────────────────────────
 const obstacles      = [];   // all active Obstacle instances
@@ -3204,10 +3211,6 @@ player.group.rotation.y = Math.PI;
 // ── Walk mode state ────────────────────────────────────
 let walkMode = false, walker = null;
 let inBuilding = false, _interiorMeshes = [], _currentBldg = null;
-const _enterableBuildings = [];   // populated by spawnBuilding for def.enterable
-
-// ── Mission world markers (stageId → ExclamationMarker) ────────────────────
-const _missionMarkers = new Map();
 
 const aiColors       = [0xCC2211, 0xDDAA00, 0xDDDDDD];
 const aiPersonalities = ['aggressive', 'normal', 'defensive'];
@@ -3786,7 +3789,6 @@ function startGame() {
   if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
   _setupGunPickup();
   frame();
-  if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSIONS);
   DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
 }
 window._startRace = startGame;
