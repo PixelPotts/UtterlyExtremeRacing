@@ -1,0 +1,7 @@
+# debug-server.js output and debug downloads
+*.log
+building_entry_debug.json
+
+# build and editor leftovers
+nsf2wav
+*.blend1
