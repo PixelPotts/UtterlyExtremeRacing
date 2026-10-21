@@ -111,9 +111,6 @@ export class Grenade extends Throwable {
     // Bloom — slightly larger BackSide sphere (not a primitive, fx only)
     root.add(new THREE.Mesh(_gGlowGeo, _gGlowMat));
 
-    // Soft white point light
-    root.add(new THREE.PointLight(0xffffff, 8, 2.8));
-
     return root;
   }
 

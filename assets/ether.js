@@ -220,8 +220,14 @@ export class EtherComposer {
   warmupCompile(renderer, scene, cam) {
     const dummy = this.makePortalMesh(0, -5000, 0, -5000);
     scene.add(dummy);
+    const toScreen = renderer.compileAsync(scene, cam);
+    // Rendering into the render target needs a second variant of every shader
+    // (linear output); compile those in the background too.
+    renderer.setRenderTarget(this._rt);
+    const toTarget = renderer.compileAsync(scene, cam);
+    renderer.setRenderTarget(null);
     return Promise.all([
-      renderer.compileAsync(scene, cam),
+      toScreen, toTarget,
       renderer.compileAsync(this._screenScene, this._screenCam),
     ]).then(() => {
       scene.remove(dummy);

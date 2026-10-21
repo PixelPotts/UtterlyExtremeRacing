@@ -22,6 +22,7 @@ export const DOOR_WARMUP_MATS = [
   _frameMat, _winMat, _winFrameMat,
   ...Object.values(_panelMats),
 ];
+export const DOOR_INSTANCED_MATS = [_winMat];
 
 // ── Door ──────────────────────────────────────────────────────────────────────
 // Local space: X = door-width axis, Y = height, +Z = outward normal (toward road).

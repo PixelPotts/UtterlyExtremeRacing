@@ -275,6 +275,7 @@ const _ROCK_MATS = [
   0x6B5A48, 0x5A504A, 0x4E4840, 0x7A6B58, 0x4A4238,
   0x635548, 0x524A40, 0x7E7060, 0x403830, 0x5C5248,
 ].map(c => new THREE.MeshLambertMaterial({ color: c, flatShading: true }));
+export const ROCK_WARMUP_MATS = _ROCK_MATS;
 
 function _buildRock() {
   // Random cube-ish proportions: width/depth similar, height shorter

@@ -12,7 +12,7 @@ const NUM_BLDG  = 26;    // per side
 
 // Water-illumination lights live near the player's Z (local Z ≈ 0) so their
 // range can realistically cover the 8–70 m wide water strip.
-const NUM_LIGHTS  = 8;
+const NUM_LIGHTS  = 3;   // per side; every light is in every lit shader
 const LIGHT_LAT   = 90;   // metres laterally for lights (just outside buildings)
 const LIGHT_Y     = 12;   // metres above road level
 const LIGHT_RANGE = 160;

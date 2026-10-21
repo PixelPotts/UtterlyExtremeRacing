@@ -7,6 +7,10 @@ const _wallMat   = new THREE.MeshLambertMaterial({ color: 0xC8BCAA, side: THREE.
 const _stairMat  = new THREE.MeshLambertMaterial({ color: 0x998877 });
 const _railMat   = new THREE.MeshLambertMaterial({ color: 0x4A3A2A });
 
+// Warmup exports: interiors are built mid-race, so their shaders compile at load
+export const INTERIOR_WARMUP_MATS    = [_floorMat, _ceilMat, _wallMat, _stairMat, _railMat];
+export const INTERIOR_INSTANCED_MATS = [_stairMat];
+
 // Reusable dummy for InstancedMesh matrix writes
 const _dummy = new THREE.Object3D();
 
@@ -238,10 +242,7 @@ export class BuildingInterior {
       parent.add(landing);
     }
 
-    // ── Interior point light ─────────────────────────────────────────────────
-    const light = new THREE.PointLight(0xFFDDBB, 55, fh * 4.5);
-    light.position.set(0, floorY + fh * 0.60, 0);
-    parent.add(light);
+    // Lit by the game's single interior light, which follows the walker
   }
 
   // Waist-high partition wall at local Z = zPos, with a doorway opening

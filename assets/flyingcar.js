@@ -20,13 +20,13 @@ const _wingMat  = new THREE.MeshLambertMaterial({ color: 0x151520 });
 //   fc.update(dt);                // call each frame
 //   fc.dispose();                 // remove from scene
 export class FlyingCar {
-  constructor(scene, color = 0x00AAFF) {
+  constructor(scene, color = 0x00AAFF, { light = true } = {}) {
     this.scene = scene;
     this._vx   = 0;
     this._vz   = 0;
 
     const stripMat = new THREE.MeshBasicMaterial({ color });
-    this._light    = new THREE.PointLight(color, 160, 26);
+    this._light    = light ? new THREE.PointLight(color, 160, 26) : null;
 
     this.group = new THREE.Group();
 
@@ -48,8 +48,10 @@ export class FlyingCar {
     this.group.add(strip);
 
     // Point light (parented to group, moves with car)
-    this._light.position.set(0, -0.3, 0);
-    this.group.add(this._light);
+    if (this._light) {
+      this._light.position.set(0, -0.3, 0);
+      this.group.add(this._light);
+    }
 
     scene.add(this.group);
   }

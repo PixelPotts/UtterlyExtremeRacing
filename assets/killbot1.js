@@ -20,6 +20,19 @@ export function preloadKillBot1() {
   return Promise.resolve(AssetRegistry.get('killbot1'));
 }
 
+// Laser lights live in the scene for the whole level (addKillBotLights at level start):
+// adding lights when a bot spawns would recompile every lit shader.
+let _lights = null;
+export function addKillBotLights(scene) {
+  const spot   = new THREE.SpotLight(0xff0000, 0, 45, 0.22, 0.55, 1.4);
+  const target = new THREE.Object3D();
+  const src    = new THREE.PointLight(0xff0000, 0, 12);
+  spot.target = target;
+  spot.position.set(0, -500, 0); src.position.set(0, -500, 0);
+  scene.add(spot, target, src);
+  _lights = { spot, target, src };
+}
+
 export class KillBot1 extends EnemyMovement {
   constructor(scene, path, spawnSeg, SLEN, { onExplosion = null } = {}) {
     super(scene, path, spawnSeg, SLEN, {
@@ -109,16 +122,11 @@ export class KillBot1 extends EnemyMovement {
     this._laserGlow.userData.sharedGeo = true;
     this.scene.add(this._laserGlow);
 
-    // SpotLight — illuminates road and player
-    this._laserSpot = new THREE.SpotLight(0xff0000, 0, 45, 0.22, 0.55, 1.4);
-    this._laserSpotTarget = new THREE.Object3D();
-    this.scene.add(this._laserSpotTarget);
-    this._laserSpot.target = this._laserSpotTarget;
-    this.scene.add(this._laserSpot);
-
-    // PointLight at source — self-illuminates the bot body
-    this._laserSrcLight = new THREE.PointLight(0xff0000, 0, 12);
-    this.scene.add(this._laserSrcLight);
+    // Laser spot lights the road and player; the source light lights the bot body
+    if (!_lights) addKillBotLights(this.scene);
+    this._laserSpot       = _lights.spot;
+    this._laserSpotTarget = _lights.target;
+    this._laserSrcLight   = _lights.src;
 
     // State
     this._laserCooldown    = 5.0;
@@ -325,10 +333,9 @@ export class KillBot1 extends EnemyMovement {
 
   // ── Dispose ───────────────────────────────────────────────────────────────
   dispose() {
-    [this._laserCore, this._laserGlow, this._laserSpot,
-     this._laserSpotTarget, this._laserSrcLight].forEach(o => {
-      if (o) this.scene.remove(o);
-    });
+    [this._laserCore, this._laserGlow].forEach(o => { if (o) this.scene.remove(o); });
+    this._laserSpot.intensity = 0;     this._laserSpot.position.set(0, -500, 0);
+    this._laserSrcLight.intensity = 0; this._laserSrcLight.position.set(0, -500, 0);
     // Geometries are shared module-level constants — only dispose materials
     if (this._laserCore) this._laserCore.material.dispose();
     if (this._laserGlow) this._laserGlow.material.dispose();
