@@ -3119,7 +3119,7 @@ pickupManager.on('ammo', () => {
 for (let i = 0; i <= DECO_AHEAD + 5; i++) pickupManager.spawnForSeg(i, false);
 pickupFrontier = DECO_AHEAD + 6;
 
-// ── Gun pickup setup — called at level start and on restart ────────────────
+// ── Gun pickup setup — called at race start (GLTFs are loaded by then) ─────
 function _setupGunPickup() {
   const gltf = AssetRegistry.get('gun');
   if (!gltf) return; // preload not done yet (shouldn't happen after loading screen)
@@ -3149,7 +3149,6 @@ function _setupGunPickup() {
   gunLight.position.copy(gunMesh.position);
   scene.add(gunLight);
 }
-_setupGunPickup();
 
 // Auto-equip gun (called when the 'neutralize' mission obj activates)
 function _autoEquipGun() {
@@ -3785,6 +3784,7 @@ function startGame() {
 
   const ldr = document.getElementById('loader');
   if (ldr) { ldr.style.opacity = '0'; setTimeout(() => { ldr.style.display = 'none'; if (window._stopLoaderShader) window._stopLoaderShader(); }, 700); }
+  _setupGunPickup();
   frame();
   if (currentLevel === 1) MissionSystem.load(LEVEL1_MISSIONS);
   DialogSystem.show(currentLevel === 1 ? LEVEL1_INTRO : []).then(startCountdown);
