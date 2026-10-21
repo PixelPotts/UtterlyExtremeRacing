@@ -4858,7 +4858,6 @@ function teardownL1() {
   camYaw = 0; camBumpPos = 0; camBumpVel = 0; lastBumpSeg = -1; _fallTimer = 0;
   gunMesh = null; gunGlow = null; gunLight = null; gunPickedUp = false;
   activeWeapon = null; _dryFirePlayed = false; gunEmptyTimer = -1;
-  if (currentLevel === 1) _setupGunPickup(); // re-place gun from cached asset
   for (const g of _playerGrenades3D) g.dispose();
   _playerGrenades3D.length = 0;
   nitroCharges = 0; playerGrenades = 0; _nitroBurnTimer = 0; _grCooldown = 0;
