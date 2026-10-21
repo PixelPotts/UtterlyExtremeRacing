@@ -1331,7 +1331,7 @@ addStochasticTiling(M.dirt);
 
 // ── Street light pool (fixed size = no shader recompilation) ───────────
 const streetLightPosts = new Map(); // si -> [{x,y,z}]
-const SLPOOL = 28;
+const SLPOOL = 10;
 const streetLightPool = Array.from({length: SLPOOL}, () => {
   const l = new THREE.PointLight(0xFFDD88, 420, 20);
   l.position.set(0, -500, 0);
@@ -3092,10 +3092,10 @@ function dropDecorations(si) {
 //    references _refineryLightPool immediately.
 // TODO: tesla coils temporarily disabled — const _etherCoilLightPool = new EtherCoilLightPool(scene, 3);
 const _etherCoilLightPool  = { restoreTo() {} }; // stub
-// 5 lights/refinery × 2 sides × 4 concurrent max (DECO_AHEAD/22 rounded up + 1)
-const _refineryLightPool   = new RefineryLightPool(scene, 40);
-// 1 light/building × 2 sides × every-4-segs × DECO_AHEAD=15 → max ~8 + margin
-const _sceneryLightPool    = new SceneryLightPool(scene, 14);
+// 5 lights/refinery × 2 sides: the nearest refinery pair gets lights, later ones stay dark
+const _refineryLightPool   = new RefineryLightPool(scene, 10);
+// 1 fill light per factory building, nearest first
+const _sceneryLightPool    = new SceneryLightPool(scene, 4);
 
 for (let i = 0; i <= DECO_AHEAD + 5; i++) _decoQueue.push(() => addDecorations(i));
 _DBG.log(`FLUSH_ALL_START_L1\titems=${_decoQueue.pending}\tscene=${scene.children.length}`);
@@ -4952,11 +4952,11 @@ function startLevel2() {
   // ── Light pool FIRST — all pool lights land in the scene before any segment
   //    builds or compileAsync, so the shader is compiled with the final stable
   //    light count and never recompiles during gameplay.
-  // 44 spots covers ~DECO_AHEAD÷3×2 neon poles + margin.
-  // 16 points covers ~DECO_AHEAD÷8 neon cubes + margin.
-  _neonLightPool        = new NeonLightPool(scene, 44, 16);
-  _splitLightPoolBlue   = new NeonLightPool(scene, 12, 0, 0x0088ff);
-  _splitLightPoolOrange = new NeonLightPool(scene, 12, 0, 0xff6600);
+  // Sized for the nearest neon poles and cubes only; further ones keep their glowing
+  // lamp heads but no light. Every light here is in every lit shader.
+  _neonLightPool        = new NeonLightPool(scene, 12, 6);
+  _splitLightPoolBlue   = new NeonLightPool(scene, 4, 0, 0x0088ff);
+  _splitLightPoolOrange = new NeonLightPool(scene, 4, 0, 0xff6600);
 
   // Neon-night atmosphere
   scene.background.setHex(0x000000);

@@ -32,7 +32,7 @@ export class NeonLightPool {
 
   acquireSpot(x, y, z, tx, ty, tz) {
     const i = this._spotFree.pop();
-    if (i == null) { console.warn('NeonLightPool: spot pool exhausted'); return null; }
+    if (i == null) return null;
     const sl = this.spots[i];
     sl.position.set(x, y, z);
     sl.target.position.set(tx, ty, tz);
@@ -42,7 +42,7 @@ export class NeonLightPool {
 
   acquirePoint(x, y, z) {
     const i = this._pointFree.pop();
-    if (i == null) { console.warn('NeonLightPool: point pool exhausted'); return null; }
+    if (i == null) return null;
     this.points[i].position.set(x, y, z);
     return { idx: i, type: 'point' };
   }

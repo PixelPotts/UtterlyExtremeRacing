@@ -245,7 +245,7 @@ export class PickupManager {
     this._zoneTypes = zoneTypes;
     this._bySeg     = new Map();
     this._cb        = {};
-    this._lightPool = new PickupLightPool(scene, 12);
+    this._lightPool = new PickupLightPool(scene, 6);
   }
 
   on(type, fn) { this._cb[type] = fn; }

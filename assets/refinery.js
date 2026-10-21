@@ -31,7 +31,7 @@ export class RefineryLightPool {
 
   acquire(x, y, z, color, intensity, distance) {
     const i = this._free.pop();
-    if (i == null) { console.warn('[RefineryLightPool] exhausted'); return null; }
+    if (i == null) return null;   // nearest refineries get the lights; the rest stay dark
     const l = this._lights[i];
     l.color.setHex(color);
     l.intensity = intensity;
@@ -173,11 +173,13 @@ export class Refinery {
       return m;
     };
 
-    // Acquire a flame PointLight from pool if available, else create a new one.
+    // Acquire a flame PointLight from the pool; with a pool, an exhausted pool means
+    // no light (a new light would change the light count and recompile every shader).
     const addFlameLight = (x, y, z, color, intensity, distance) => {
       if (this._lightPool) {
         const l = this._lightPool.acquire(x, y, z, color, intensity, distance);
-        if (l) { this._poolSlots.push(l); return l; }
+        if (l) this._poolSlots.push(l);
+        return l;
       }
       const l = new THREE.PointLight(color, intensity, distance);
       l.position.set(x, y, z);
@@ -339,7 +341,7 @@ export class Refinery {
     for (const fl of this._flames) {
       fl.t += dt * (4.5 + Math.random() * 4);
       const flk = 0.72 + 0.28 * Math.sin(fl.t * 3.2) + 0.10 * Math.sin(fl.t * 7.1);
-      fl.light.intensity = 14 * flk;
+      if (fl.light) fl.light.intensity = 14 * flk;
       fl.cone.scale.y = 0.75 + 0.50 * flk;
       fl.mat.opacity   = 0.55 + 0.30 * flk;
     }
